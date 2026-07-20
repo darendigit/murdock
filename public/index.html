@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>murdock</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>" />
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <h1>murdock</h1>
+      <p class="tagline">paste a link · pull the audio · chop it later</p>
+    </header>
+
+    <form id="grab-form" class="grab" autocomplete="off">
+      <div class="input-row">
+        <input
+          id="url"
+          name="url"
+          type="text"
+          placeholder="https://youtube.com/watch?v=…"
+          spellcheck="false"
+          required
+        />
+        <button type="submit" id="submit-btn">Grab</button>
+      </div>
+
+      <div class="controls">
+        <label class="field">
+          <span>Format</span>
+          <select id="format">
+            <option value="wav">WAV · lossless, best for sampling</option>
+            <option value="mp3" selected>MP3 · smaller, universal</option>
+            <option value="flac">FLAC · lossless, compressed</option>
+            <option value="m4a">M4A · native, no re-encode</option>
+            <option value="opus">OPUS · native, no re-encode</option>
+          </select>
+        </label>
+
+        <label class="field narrow">
+          <span>Start <em>(optional)</em></span>
+          <input id="start" type="text" placeholder="0:45" spellcheck="false" />
+        </label>
+
+        <label class="field narrow">
+          <span>End <em>(optional)</em></span>
+          <input id="end" type="text" placeholder="1:12" spellcheck="false" />
+        </label>
+      </div>
+
+      <label class="toggle">
+        <input id="stereo" type="checkbox" checked />
+        <span>Downmix to stereo <em>— off keeps 5.1 surround if the source has it</em></span>
+      </label>
+    </form>
+
+    <section id="status" class="status" hidden></section>
+
+    <section id="result" class="result" hidden></section>
+
+    <footer class="foot">
+      <p id="providers" class="providers"></p>
+      <p class="legal">
+        For personal, non-commercial sampling. You are responsible for clearing
+        anything you release — rights holders still own their recordings.
+      </p>
+    </footer>
+  </main>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

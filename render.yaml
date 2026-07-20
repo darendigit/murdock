@@ -1,0 +1,34 @@
+# Render blueprint. Push this repo, then in Render: New → Blueprint → pick the repo.
+#
+# Free tier notes:
+#   - The instance sleeps after ~15 min idle; the first request after that
+#     takes ~1 min while the container cold-starts.
+#   - Disk is ephemeral and wiped on every restart/redeploy, which suits the
+#     TTL model — a restart just clears the buffer early.
+#   - 512MB RAM is the constraint that sets MURDOCK_MAX_CONCURRENT.
+
+services:
+  - type: web
+    name: murdock
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: MURDOCK_EPHEMERAL
+        value: "1"
+      - key: MURDOCK_DOWNLOAD_DIR
+        value: /tmp/murdock
+      # How long a grab survives before it is swept.
+      - key: MURDOCK_TTL_MINUTES
+        value: "30"
+      # Hard ceiling on the scratch buffer; oldest files evicted first.
+      - key: MURDOCK_MAX_DISK_MB
+        value: "400"
+      - key: MURDOCK_MAX_CONCURRENT
+        value: "2"
+      # Per-IP hourly caps. Lower these if the instance gets hammered.
+      - key: MURDOCK_EXTRACT_PER_HOUR
+        value: "12"
+      - key: MURDOCK_PROBE_PER_HOUR
+        value: "60"

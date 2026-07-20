@@ -1,0 +1,8 @@
+node_modules/
+downloads/*
+!downloads/.gitkeep
+# Local keeps: audio you want to survive, never committed (large binaries).
+library/
+.DS_Store
+*.log
+.env

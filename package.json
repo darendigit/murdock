@@ -1,0 +1,18 @@
+{
+  "name": "murdock",
+  "version": "0.1.0",
+  "description": "Paste a link, get an audio file. Vocal-stem sourcing tool for sampling.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "private": true
+}
