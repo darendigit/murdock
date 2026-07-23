@@ -51,11 +51,24 @@ function parseTimecode(value) {
   return parts.reduce((total, part) => total * 60 + Number(part), 0);
 }
 
+/**
+ * Cached yt-dlp availability. Checking it spawns a subprocess, and the health
+ * endpoint is hit frequently by the platform's health probe — doing it per
+ * request piled up hanging processes on the hosted instance and made the whole
+ * service unresponsive. Check once at boot, then refresh on a slow interval.
+ */
+let ytdlpStatus = { ok: false, checking: true };
+
+async function refreshYtdlpStatus() {
+  ytdlpStatus = await checkAvailable();
+  return ytdlpStatus;
+}
+
 app.get('/api/health', async (req, res) => {
-  const ytdlp = await checkAvailable();
   res.json({
-    ok: ytdlp.ok,
-    ytdlp,
+    // 'checking' during the brief boot window means "not known yet", not broken.
+    ok: ytdlpStatus.ok || ytdlpStatus.checking === true,
+    ytdlp: ytdlpStatus,
     formats: AUDIO_FORMATS,
     providers: listProviders(),
     storage: await getStats(DOWNLOAD_DIR),
@@ -264,14 +277,8 @@ app.get('/api/stream/:name', async (req, res) => {
 
 await mkdir(DOWNLOAD_DIR, { recursive: true });
 
-const server = app.listen(PORT, async () => {
-  const ytdlp = await checkAvailable();
+const server = app.listen(PORT, () => {
   console.log(`\n  murdock  →  http://localhost:${PORT}\n`);
-  console.log(
-    ytdlp.ok
-      ? `  yt-dlp ${ytdlp.version} ready`
-      : `  ⚠ yt-dlp unavailable: ${ytdlp.error}`
-  );
   console.log(`  storage  ${DOWNLOAD_DIR}`);
   console.log(
     EPHEMERAL
@@ -279,7 +286,17 @@ const server = app.listen(PORT, async () => {
       : `  files are kept (set MURDOCK_EPHEMERAL=1 to auto-delete)`
   );
   console.log(`  limits   ${EXTRACT_PER_HOUR} grabs/hr per IP\n`);
+
+  // Probe yt-dlp after the server is already listening, so a slow first probe
+  // never delays the port opening or the platform's health check passing.
+  refreshYtdlpStatus().then((s) => {
+    console.log(s.ok ? `  yt-dlp ${s.version} ready\n` : `  ⚠ yt-dlp unavailable: ${s.error}\n`);
+  });
 });
+
+// Keep the cached status fresh without ever blocking a request.
+const ytdlpTimer = setInterval(refreshYtdlpStatus, 5 * 60 * 1000);
+ytdlpTimer.unref?.();
 
 startSweeper(DOWNLOAD_DIR);
 

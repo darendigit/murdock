@@ -217,10 +217,14 @@ async function safeReaddir(dir) {
   }
 }
 
-/** Check that the yt-dlp binary is reachable, for the startup banner. */
-export async function checkAvailable() {
+/**
+ * Check that the yt-dlp binary is reachable.
+ * Timeout is generous by default: on a throttled host the first invocation can
+ * be slow, and this gates nothing latency-sensitive — the result is cached.
+ */
+export async function checkAvailable({ timeoutMs = 30_000 } = {}) {
   try {
-    const { stdout } = await run(['--version'], { timeoutMs: 10_000 });
+    const { stdout } = await run(['--version'], { timeoutMs });
     return { ok: true, version: stdout.trim() };
   } catch (err) {
     return { ok: false, error: err.message };

@@ -1,9 +1,14 @@
 # murdock — container image for hosted deployment (Render, Fly, any Docker host).
 #
-# Two binaries do the real work and neither ships with Node, so they are
-# installed explicitly: ffmpeg for transcoding, yt-dlp for extraction.
-# yt-dlp uses the standalone Linux build, which bundles its own Python — that
-# keeps the image smaller than installing python3 + pip just to get it.
+# Two binaries do the real work and neither ships with Node: ffmpeg for
+# transcoding, yt-dlp for extraction.
+#
+# yt-dlp is installed via pip into a venv rather than the standalone
+# `yt-dlp_linux` build. That build is a PyInstaller bundle that self-extracts
+# ~30MB to a temp dir on EVERY invocation; on a throttled free-tier CPU that
+# blew past the version-check timeout and wedged the service. The pip package
+# runs through the interpreter with no per-call unpacking — it starts in well
+# under a second.
 
 FROM node:22-bookworm-slim
 
@@ -17,14 +22,15 @@ ENV NODE_ENV=production \
     # 512MB hosts cannot survive many parallel transcodes.
     MURDOCK_MAX_CONCURRENT=2
 
+# yt-dlp lives in its own venv so a `pip install` upgrade never touches system
+# Python. PATH is prepended so `yt-dlp` resolves to it.
+ENV PATH="/opt/ytdlp-venv/bin:${PATH}"
+
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl \
- && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-      -o /usr/local/bin/yt-dlp \
- && chmod a+rx /usr/local/bin/yt-dlp \
- && yt-dlp --version \
- && apt-get purge -y curl \
- && apt-get autoremove -y \
+ && apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-venv \
+ && python3 -m venv /opt/ytdlp-venv \
+ && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
+ && /opt/ytdlp-venv/bin/yt-dlp --version \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
