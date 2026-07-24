@@ -87,13 +87,10 @@ function friendlyError(message, service) {
     );
 
   if (ytBound && unreachable) {
-    const subject =
-      service.mode === 'resolve'
-        ? 'This track comes from YouTube behind the scenes, and YouTube'
-        : 'YouTube';
     return {
       soft: true,
-      message: `${subject} couldn’t be reached from the server just now — this can happen now and then on the hosted version. Give it another try in a moment, or use a SoundCloud or Bandcamp link, which aren’t affected.`,
+      message:
+        'Unable to pull audio from YouTube right now, try again in a few minutes or use a link from another service.',
     };
   }
   return { soft: false, message: m };
