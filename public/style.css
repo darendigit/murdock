@@ -213,6 +213,9 @@ body {
 
 .status.error { border-color: rgba(255, 107, 94, 0.4); }
 
+/* Soft, recoverable notice — amber, calmer than the red error state. */
+.status.notice { border-color: rgba(230, 196, 90, 0.4); }
+
 .status-line {
   display: flex;
   align-items: center;
@@ -220,9 +223,13 @@ body {
   font-family: var(--mono);
   font-size: 13px;
   color: var(--muted);
+  line-height: 1.5;
 }
 
 .status.error .status-line { color: var(--danger); }
+.status.notice .status-line { color: #e6c45a; }
+
+.notice-mark { flex-shrink: 0; }
 
 .spinner {
   width: 12px;
@@ -341,13 +348,47 @@ body {
 .play-btn:hover { background: #e2ff6e; }
 .play-btn:active { transform: scale(0.94); }
 
+/* The two icons occupy the same 18px box; only one is visible at a time,
+   crossfading + scaling as the .playing class flips. */
+.play-icons {
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+
 .play-btn svg {
+  position: absolute;
+  inset: 0;
   width: 18px;
   height: 18px;
   fill: currentColor;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.play-btn .icon-play { margin-left: 2px; }
+/* Paused (default): show play, hide pause. */
+.play-btn .icon-play {
+  margin-left: 2px; /* optical centering of the triangle */
+  opacity: 1;
+  transform: scale(1);
+}
+.play-btn .icon-pause {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+/* Playing: crossfade to pause. */
+.play-btn.playing .icon-play {
+  opacity: 0;
+  transform: scale(0.6);
+}
+.play-btn.playing .icon-pause {
+  opacity: 1;
+  transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play-btn svg { transition: none; }
+}
 
 .wave-wrap {
   position: relative;

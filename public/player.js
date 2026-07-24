@@ -65,8 +65,10 @@ export function createPlayer(container, { streamUrl, format }) {
   container.innerHTML = `
     <div class="player">
       <button class="play-btn" type="button" aria-label="Play">
-        <svg viewBox="0 0 24 24" class="icon-play" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-        <svg viewBox="0 0 24 24" class="icon-pause" aria-hidden="true" hidden><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+        <span class="play-icons">
+          <svg viewBox="0 0 24 24" class="icon-play" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg viewBox="0 0 24 24" class="icon-pause" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+        </span>
       </button>
       <div class="wave-wrap">
         <canvas class="wave" role="slider" tabindex="0"
@@ -82,8 +84,6 @@ export function createPlayer(container, { streamUrl, format }) {
   audio.src = streamUrl;
 
   const playBtn = container.querySelector('.play-btn');
-  const iconPlay = container.querySelector('.icon-play');
-  const iconPause = container.querySelector('.icon-pause');
   const canvas = container.querySelector('.wave');
   const loading = container.querySelector('.wave-loading');
   const timeEl = container.querySelector('.time');
@@ -116,15 +116,33 @@ export function createPlayer(container, { streamUrl, format }) {
     const barCount = Math.floor(rect.width / (BAR_WIDTH + BAR_GAP));
     const mid = rect.height / 2;
     const progress = audio.duration ? audio.currentTime / audio.duration : 0;
+    // Continuous pixel position of the playhead, not snapped to a bar.
+    const progressX = progress * rect.width;
 
-    for (let i = 0; i < barCount; i++) {
-      const x = i * (BAR_WIDTH + BAR_GAP);
-      // Before decode finishes, render a flat idle bed rather than nothing.
-      const peak = peaks ? peaks[Math.floor((i / barCount) * peaks.length)] : 0.12;
-      const height = Math.max(2, peak * (rect.height - 4));
+    const drawBars = () => {
+      for (let i = 0; i < barCount; i++) {
+        const x = i * (BAR_WIDTH + BAR_GAP);
+        // Before decode finishes, render a flat idle bed rather than nothing.
+        const peak = peaks ? peaks[Math.floor((i / barCount) * peaks.length)] : 0.12;
+        const height = Math.max(2, peak * (rect.height - 4));
+        ctx.fillRect(x, mid - height / 2, BAR_WIDTH, height);
+      }
+    };
 
-      ctx.fillStyle = i / barCount <= progress ? colors.played : colors.idleLit;
-      ctx.fillRect(x, mid - height / 2, BAR_WIDTH, height);
+    // Idle bed first, then the played portion clipped to the exact playhead x.
+    // Clipping the fill (rather than colouring whole bars) lets the boundary bar
+    // fill partially, so the edge glides smoothly instead of jumping bar to bar.
+    ctx.fillStyle = colors.idleLit;
+    drawBars();
+
+    if (progressX > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, progressX, rect.height);
+      ctx.clip();
+      ctx.fillStyle = colors.played;
+      drawBars();
+      ctx.restore();
     }
   }
 
@@ -143,8 +161,8 @@ export function createPlayer(container, { streamUrl, format }) {
   }
 
   function setPlayingUI(playing) {
-    iconPlay.hidden = playing;
-    iconPause.hidden = !playing;
+    // CSS crossfades the two icons based on this class — only one shows at a time.
+    playBtn.classList.toggle('playing', playing);
     playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
   }
 

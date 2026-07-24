@@ -71,6 +71,34 @@ function proxyFor(service) {
   return service.id === 'youtube' || service.mode === 'resolve' ? YT_PROXY : null;
 }
 
+/**
+ * Map a raw extractor error to a calm, actionable message. yt-dlp's YouTube
+ * bot-check error ("Sign in to confirm you're not a bot… use --cookies") reads
+ * as fatal and technical; on the hosted instance it just means YouTube wasn't
+ * reachable this time. Returns { message, soft } — soft errors render as a
+ * gentle notice rather than a red failure.
+ */
+function friendlyError(message, service) {
+  const m = String(message || '');
+  const ytBound = service && (service.id === 'youtube' || service.mode === 'resolve');
+  const unreachable =
+    /not a bot|sign in to confirm|player response|unable to download|http error 403|proxy|timed out|connection refused|failed to extract/i.test(
+      m
+    );
+
+  if (ytBound && unreachable) {
+    const subject =
+      service.mode === 'resolve'
+        ? 'This track comes from YouTube behind the scenes, and YouTube'
+        : 'YouTube';
+    return {
+      soft: true,
+      message: `${subject} couldn’t be reached from the server just now — this can happen now and then on the hosted version. Give it another try in a moment, or use a SoundCloud or Bandcamp link, which aren’t affected.`,
+    };
+  }
+  return { soft: false, message: m };
+}
+
 let ytdlpStatus = { ok: false, checking: true };
 
 async function refreshYtdlpStatus() {
@@ -93,8 +121,9 @@ app.get('/api/health', async (req, res) => {
 
 /** Identify the service and pull metadata, without downloading anything. */
 app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
+  let service;
   try {
-    const service = detectService(req.body?.url);
+    service = detectService(req.body?.url);
 
     if (service.mode === 'resolve') {
       const resolved = await resolveSpotify(service.url);
@@ -111,7 +140,8 @@ app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
     const info = await probe(service.url, { proxy: proxyFor(service) });
     res.json({ service, media: info });
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    const e = friendlyError(err.message, service);
+    res.status(400).json({ error: e.message, soft: e.soft });
   }
 });
 
@@ -148,8 +178,10 @@ app.post('/api/extract', rateLimit('extract', EXTRACT_PER_HOUR), async (req, res
     runJob(jobId, service, { format, start, end, stereo: stereo !== false }).catch((err) => {
       const job = jobs.get(jobId);
       if (job) {
+        const e = friendlyError(err.message, service);
         job.status = 'error';
-        job.error = err.message;
+        job.error = e.message;
+        job.soft = e.soft;
       }
     });
   } catch (err) {

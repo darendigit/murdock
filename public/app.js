@@ -34,12 +34,18 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function showStatus(message, { progress = null, error = false } = {}) {
+function showStatus(message, { progress = null, error = false, soft = false } = {}) {
   statusEl.hidden = false;
-  statusEl.classList.toggle('error', error);
+  // A soft error is recoverable (e.g. YouTube momentarily unreachable) — style
+  // it as a calm notice, not a hard failure.
+  statusEl.classList.toggle('error', error && !soft);
+  statusEl.classList.toggle('notice', error && soft);
+
+  const icon = soft ? '<span class="notice-mark">↻</span>' : error ? '<span>✕</span>' : '<span class="spinner"></span>';
+
   statusEl.innerHTML = `
     <div class="status-line">
-      ${error ? '<span>✕</span>' : '<span class="spinner"></span>'}
+      ${icon}
       <span>${escapeHtml(message)}</span>
     </div>
     ${progress != null ? `
@@ -144,7 +150,7 @@ async function pollJob(jobId, probeData) {
         setBusy(false);
       } else if (job.status === 'error') {
         clearInterval(polling);
-        showStatus(job.error || 'Extraction failed.', { error: true });
+        showStatus(job.error || 'Extraction failed.', { error: true, soft: job.soft });
         setBusy(false);
       } else {
         showStatus(job.stage || 'Working', { progress: job.progress ?? 0 });
@@ -191,7 +197,7 @@ form.addEventListener('submit', async (event) => {
     });
     const probeData = await probeRes.json();
 
-    if (!probeRes.ok) throw new Error(probeData.error || 'Could not read that link.');
+    if (!probeRes.ok) throw Object.assign(new Error(probeData.error || 'Could not read that link.'), { soft: probeData.soft });
 
     showStatus(`Found: ${probeData.media.title}`);
 
@@ -202,11 +208,11 @@ form.addEventListener('submit', async (event) => {
     });
     const extractData = await extractRes.json();
 
-    if (!extractRes.ok) throw new Error(extractData.error || 'Could not start extraction.');
+    if (!extractRes.ok) throw Object.assign(new Error(extractData.error || 'Could not start extraction.'), { soft: extractData.soft });
 
     pollJob(extractData.jobId, probeData);
   } catch (err) {
-    showStatus(err.message, { error: true });
+    showStatus(err.message, { error: true, soft: err.soft });
     setBusy(false);
   }
 });
