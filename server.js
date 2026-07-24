@@ -57,6 +57,20 @@ function parseTimecode(value) {
  * request piled up hanging processes on the hosted instance and made the whole
  * service unresponsive. Check once at boot, then refresh on a slow interval.
  */
+// Optional egress proxy, applied ONLY to YouTube-bound yt-dlp calls. YouTube
+// blocks the hosted instance's datacenter IP; a WARP proxy (wired up in the
+// Dockerfile) gives those requests a non-blocked egress. Unset locally, so
+// local grabs — from a residential IP — always go direct.
+const YT_PROXY = process.env.MURDOCK_YT_PROXY || null;
+
+/** Proxy to use for a service's yt-dlp calls, or null. YouTube-bound only. */
+function proxyFor(service) {
+  if (!YT_PROXY) return null;
+  // Direct YouTube, or Spotify (which resolves to a YouTube search) — both
+  // ultimately hit YouTube. Everything else goes direct.
+  return service.id === 'youtube' || service.mode === 'resolve' ? YT_PROXY : null;
+}
+
 let ytdlpStatus = { ok: false, checking: true };
 
 async function refreshYtdlpStatus() {
@@ -84,7 +98,7 @@ app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
 
     if (service.mode === 'resolve') {
       const resolved = await resolveSpotify(service.url);
-      const info = await probe(toSearchTarget(resolved.searchQuery));
+      const info = await probe(toSearchTarget(resolved.searchQuery), { proxy: proxyFor(service) });
 
       return res.json({
         service,
@@ -94,7 +108,7 @@ app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
       });
     }
 
-    const info = await probe(service.url);
+    const info = await probe(service.url, { proxy: proxyFor(service) });
     res.json({ service, media: info });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -182,6 +196,7 @@ async function runJobInner(job, service, { format, start, end, stereo }) {
     startTime: start,
     endTime: end,
     stereo,
+    proxy: proxyFor(service),
     onProgress: (text) => {
       const pct = text.match(/\[download\]\s+(\d+(?:\.\d+)?)%/);
       if (pct) {

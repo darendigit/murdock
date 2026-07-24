@@ -15,6 +15,14 @@
 # HLS sources (SoundCloud) — clips failed with "unable to obtain file audio
 # codec with ffprobe" on the container while working locally on ffmpeg 8. The
 # yt-dlp/FFmpeg-Builds release patches exactly this class of issue.
+#
+# WARP egress (wgcf + wireproxy): YouTube blocks this datacenter IP, so
+# YouTube-bound grabs are routed through a userspace Cloudflare WARP tunnel
+# whose IPs YouTube does not (currently) block. wireproxy runs WireGuard in
+# userspace — no NET_ADMIN, no tun device — so it works in Render's unprivileged
+# container. docker-entrypoint.sh brings it up best-effort and only enables the
+# proxy after verifying traffic actually egresses through WARP; if Render blocks
+# the WARP UDP, YouTube stays disabled and everything else still works.
 
 FROM node:22-bookworm-slim
 
@@ -46,7 +54,20 @@ RUN apt-get update \
  && ffmpeg -version | head -1 \
  && ffprobe -version | head -1 \
  && rm -rf /tmp/ff /tmp/ff.tar.xz \
- && apt-get purge -y curl xz-utils \
+ # WARP tooling: wgcf registers a free WARP device + WireGuard profile;
+ # wireproxy runs it in userspace and exposes a local SOCKS5 proxy.
+ && curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64" -o /usr/local/bin/wgcf \
+ && chmod a+rx /usr/local/bin/wgcf \
+ && wgcf --version \
+ && curl -fsSL "https://github.com/whyvl/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz" -o /tmp/wp.tar.gz \
+ && mkdir -p /tmp/wp \
+ && tar -xzf /tmp/wp.tar.gz -C /tmp/wp \
+ && mv "$(find /tmp/wp -type f -name wireproxy | head -1)" /usr/local/bin/wireproxy \
+ && chmod a+rx /usr/local/bin/wireproxy \
+ && test -x /usr/local/bin/wireproxy \
+ && rm -rf /tmp/wp /tmp/wp.tar.gz \
+ # curl is kept (not purged) for the entrypoint's runtime WARP self-test.
+ && apt-get purge -y xz-utils \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
@@ -59,13 +80,16 @@ RUN npm ci --omit=dev || npm install --omit=dev
 COPY . .
 
 # Run unprivileged. The node image already provides uid 1000 as `node`.
-RUN mkdir -p /tmp/murdock && chown -R node:node /tmp/murdock /app
+RUN mkdir -p /tmp/murdock \
+ && chmod +x /app/docker-entrypoint.sh \
+ && chown -R node:node /tmp/murdock /app
 USER node
 
 # Render injects PORT; the server falls back to 5757 elsewhere.
 EXPOSE 5757
 
-HEALTHCHECK --interval=60s --timeout=5s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=60s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||5757)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-CMD ["node", "server.js"]
+# Entrypoint brings up WARP (best-effort) then execs the server.
+CMD ["/app/docker-entrypoint.sh"]

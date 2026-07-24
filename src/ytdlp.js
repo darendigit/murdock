@@ -81,11 +81,12 @@ function cleanError(stderr) {
 }
 
 /** Fetch metadata without downloading. */
-export async function probe(url, { timeoutMs = 60_000 } = {}) {
-  const { stdout } = await run(
-    ['--dump-single-json', '--no-playlist', '--no-warnings', '--', url],
-    { timeoutMs }
-  );
+export async function probe(url, { timeoutMs = 60_000, proxy = null } = {}) {
+  const args = ['--dump-single-json', '--no-playlist', '--no-warnings'];
+  if (proxy) args.push('--proxy', proxy);
+  args.push('--', url);
+
+  const { stdout } = await run(args, { timeoutMs });
 
   let info;
   try {
@@ -127,6 +128,7 @@ export async function extractAudio(url, outputDir, options = {}) {
     startTime = null,
     endTime = null,
     stereo = true,
+    proxy = null,
     onProgress,
     timeoutMs = 900_000,
   } = options;
@@ -165,6 +167,10 @@ export async function extractAudio(url, outputDir, options = {}) {
     '--progress',
     '--output', path.join(outputDir, `%(title).120B [%(id)s]${clipTag}.%(ext)s`),
   ];
+
+  // Route through a proxy when one is supplied — used only for YouTube-bound
+  // grabs on the hosted instance, whose datacenter IP YouTube blocks.
+  if (proxy) args.push('--proxy', proxy);
 
   // Plenty of sources (film rips, live uploads) carry 5.1 audio. A 6-channel
   // file is awkward to drop into a DAW, so downmix to stereo by default.
