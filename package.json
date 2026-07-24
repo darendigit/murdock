@@ -1,6 +1,6 @@
 {
   "name": "murdock",
-  "version": "0.1.0",
+  "version": "0.0.2",
   "description": "Paste a link, get an audio file. Vocal-stem sourcing tool for sampling.",
   "type": "module",
   "main": "server.js",
