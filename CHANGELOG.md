@@ -4,6 +4,34 @@ All notable changes to murdock are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.3] — 2026-07-24
+
+Hosted YouTube & Spotify, plus player polish.
+
+### Added
+- **YouTube and Spotify now work on the hosted instance.** YouTube-bound
+  requests are routed through a userspace Cloudflare WARP tunnel (wgcf +
+  wireproxy) whose IP YouTube doesn't block. The tunnel is verified at boot and
+  the proxy is only enabled once traffic is confirmed to egress through WARP;
+  non-YouTube sources still go direct. (Fragile by nature — it works until
+  YouTube starts blocking WARP ranges.)
+- **Graceful degradation** — if YouTube is ever unreachable, grabs surface a
+  calm "try again in a few minutes or use a link from another service" notice
+  instead of yt-dlp's raw bot-check error.
+
+### Changed
+- Play/pause button is now a single icon that crossfades between states, rather
+  than rendering both stacked.
+- Waveform progress fills smoothly at the exact playhead position instead of
+  snapping bar to bar.
+
+### Fixed
+- Clipped YouTube grabs failed on the hosted instance with "ffmpeg exited with
+  code 8". yt-dlp hands its proxy to ffmpeg as `-http_proxy`, which requires an
+  HTTP proxy, not SOCKS5, so ffmpeg couldn't reach YouTube through WARP. WARP is
+  now exposed as an HTTP proxy. Verified — an 8 s clip returns exactly 8.000 s
+  of valid stereo audio.
+
 ## [0.0.2] — 2026-07-24
 
 The "make it actually run in the cloud" release. Everything below surfaced only
@@ -73,5 +101,6 @@ Initial build: paste a link, get an audio file.
   auto-deletion opt-in; `downloads/` is a library locally, a scratch buffer only
   when hosted.
 
+[0.0.3]: https://github.com/darendigit/murdock/releases/tag/v0.0.3
 [0.0.2]: https://github.com/darendigit/murdock/releases/tag/v0.0.2
 [0.0.1]: https://github.com/darendigit/murdock/releases/tag/v0.0.1
