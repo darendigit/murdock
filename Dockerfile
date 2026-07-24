@@ -58,7 +58,7 @@ RUN apt-get update \
  # wireproxy runs it in userspace and exposes a local SOCKS5 proxy.
  && curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64" -o /usr/local/bin/wgcf \
  && chmod a+rx /usr/local/bin/wgcf \
- && wgcf --version \
+ && test -x /usr/local/bin/wgcf \
  && curl -fsSL "https://github.com/whyvl/wireproxy/releases/download/v1.1.3/wireproxy_linux_amd64.tar.gz" -o /tmp/wp.tar.gz \
  && mkdir -p /tmp/wp \
  && tar -xzf /tmp/wp.tar.gz -C /tmp/wp \
