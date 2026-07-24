@@ -9,6 +9,12 @@
 # blew past the version-check timeout and wedged the service. The pip package
 # runs through the interpreter with no per-call unpacking — it starts in well
 # under a second.
+#
+# ffmpeg is yt-dlp's own patched static build, NOT Debian's apt package.
+# Debian bookworm ships ffmpeg 5.x, which mishandles `--download-sections` on
+# HLS sources (SoundCloud) — clips failed with "unable to obtain file audio
+# codec with ffprobe" on the container while working locally on ffmpeg 8. The
+# yt-dlp/FFmpeg-Builds release patches exactly this class of issue.
 
 FROM node:22-bookworm-slim
 
@@ -27,10 +33,21 @@ ENV NODE_ENV=production \
 ENV PATH="/opt/ytdlp-venv/bin:${PATH}"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg ca-certificates python3 python3-venv \
+ && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv curl xz-utils \
  && python3 -m venv /opt/ytdlp-venv \
  && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
  && /opt/ytdlp-venv/bin/yt-dlp --version \
+ # Install yt-dlp's patched static ffmpeg + ffprobe (see header note).
+ && mkdir -p /tmp/ff \
+ && curl -fsSL "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz" -o /tmp/ff.tar.xz \
+ && tar -xJf /tmp/ff.tar.xz -C /tmp/ff --strip-components=2 --wildcards '*/bin/ffmpeg' '*/bin/ffprobe' \
+ && mv /tmp/ff/ffmpeg /tmp/ff/ffprobe /usr/local/bin/ \
+ && chmod a+rx /usr/local/bin/ffmpeg /usr/local/bin/ffprobe \
+ && ffmpeg -version | head -1 \
+ && ffprobe -version | head -1 \
+ && rm -rf /tmp/ff /tmp/ff.tar.xz \
+ && apt-get purge -y curl xz-utils \
+ && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
