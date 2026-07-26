@@ -4,6 +4,37 @@ All notable changes to murdock are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.4] — 2026-07-24
+
+A reliable hosted source set, and no more cold start. Source reliability was
+verified with live test-grabs on the hosted box before shipping (feasibility
+gate), which changed the plan mid-flight — see Fixed.
+
+### Added
+- **Keep-warm** — `.github/workflows/keep-warm.yml` pings `/api/health` every
+  ~10 min so the free tier stops cold-starting; README documents the more
+  reliable external-monitor option (UptimeRobot / cron-job.org).
+- Per-source **tiers** (supported / best-effort / unsupported) in
+  `src/services.js`, driving detection, routing, and the UI.
+
+### Changed
+- **yt-dlp → nightly** in the container. Extractor fixes land there first.
+- **WARP routing generalized** from YouTube-only to a data-driven per-provider
+  `proxied` flag — now covers YouTube, Spotify, TikTok, Reddit, and unknown
+  hosts. Reliable music sites stay direct (WARP only adds latency for them).
+- Supported-source list curated to what actually works hosted.
+
+### Removed
+- **Instagram, X/Twitter, Facebook** — dropped from the UI. They require a login
+  no hosted tool can do reliably; murdock now refuses them up front with a calm
+  notice instead of a raw yt-dlp cookies error. TikTok stays as **best-effort**
+  (labeled in the UI).
+
+### Fixed
+- **Vimeo and Mixcloud** — broken on stable yt-dlp `2026.07.04` (Vimeo threw a
+  macOS-OAuth 401), fixed by the nightly switch. Verified live on the hosted box,
+  including a clipped Vimeo grab.
+
 ## [0.0.3] — 2026-07-24
 
 Hosted YouTube & Spotify, plus player polish.
@@ -101,6 +132,7 @@ Initial build: paste a link, get an audio file.
   auto-deletion opt-in; `downloads/` is a library locally, a scratch buffer only
   when hosted.
 
+[0.0.4]: https://github.com/darendigit/murdock/releases/tag/v0.0.4
 [0.0.3]: https://github.com/darendigit/murdock/releases/tag/v0.0.3
 [0.0.2]: https://github.com/darendigit/murdock/releases/tag/v0.0.2
 [0.0.1]: https://github.com/darendigit/murdock/releases/tag/v0.0.1
