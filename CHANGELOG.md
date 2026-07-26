@@ -4,6 +4,21 @@ All notable changes to murdock are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.0.5] — 2026-07-26
+
+### Added
+- **Apple Music** support. Its streams are DRM-protected (FairPlay) like
+  Spotify, so murdock reads the song page's public metadata (schema.org JSON-LD
+  `MusicRecording`, OpenGraph fallback — no account or API key) and matches the
+  track on YouTube. Verified live on the hosted box, including a clipped grab.
+  As with Spotify, the result is a best-guess YouTube match — the card shows
+  what it matched.
+
+### Changed
+- Resolver dispatch generalized: Spotify and Apple Music share one path
+  (`resolveTrack`), and the resolved-track response field + result-card note are
+  now source-agnostic instead of Spotify-specific.
+
 ## [0.0.4] — 2026-07-24
 
 A reliable hosted source set, and no more cold start. Source reliability was
@@ -132,6 +147,7 @@ Initial build: paste a link, get an audio file.
   auto-deletion opt-in; `downloads/` is a library locally, a scratch buffer only
   when hosted.
 
+[0.0.5]: https://github.com/darendigit/murdock/releases/tag/v0.0.5
 [0.0.4]: https://github.com/darendigit/murdock/releases/tag/v0.0.4
 [0.0.3]: https://github.com/darendigit/murdock/releases/tag/v0.0.3
 [0.0.2]: https://github.com/darendigit/murdock/releases/tag/v0.0.2
