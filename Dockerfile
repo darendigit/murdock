@@ -16,13 +16,14 @@
 # codec with ffprobe" on the container while working locally on ffmpeg 8. The
 # yt-dlp/FFmpeg-Builds release patches exactly this class of issue.
 #
-# WARP egress (wgcf + wireproxy): YouTube blocks this datacenter IP, so
-# YouTube-bound grabs are routed through a userspace Cloudflare WARP tunnel
-# whose IPs YouTube does not (currently) block. wireproxy runs WireGuard in
-# userspace — no NET_ADMIN, no tun device — so it works in Render's unprivileged
-# container. docker-entrypoint.sh brings it up best-effort and only enables the
-# proxy after verifying traffic actually egresses through WARP; if Render blocks
-# the WARP UDP, YouTube stays disabled and everything else still works.
+# WARP egress (wgcf + wireproxy): some platforms (YouTube, TikTok, Reddit, …)
+# block/limit this datacenter IP, so the `proxied` providers (see
+# src/services.js) are routed through a userspace Cloudflare WARP tunnel whose
+# IPs aren't blocked. wireproxy runs WireGuard in userspace — no NET_ADMIN, no
+# tun device — so it works in Render's unprivileged container, exposed as a
+# local HTTP proxy. docker-entrypoint.sh brings it up best-effort and only
+# enables the proxy after verifying traffic actually egresses through WARP; if
+# Render blocks the WARP UDP, those sources fail gracefully and the rest work.
 
 FROM node:22-bookworm-slim
 
@@ -43,7 +44,11 @@ ENV PATH="/opt/ytdlp-venv/bin:${PATH}"
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv curl xz-utils \
  && python3 -m venv /opt/ytdlp-venv \
- && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade pip yt-dlp \
+ && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade pip \
+ # Install yt-dlp NIGHTLY (--pre): extractor fixes land here first. Stable
+ # 2026.07.04 had Vimeo + Mixcloud broken; nightly fixes them. This is the
+ # channel yt-dlp recommends for keeping extractors current.
+ && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade --pre yt-dlp \
  && /opt/ytdlp-venv/bin/yt-dlp --version \
  # Install yt-dlp's patched static ffmpeg + ffprobe (see header note).
  && mkdir -p /tmp/ff \
@@ -55,7 +60,7 @@ RUN apt-get update \
  && ffprobe -version | head -1 \
  && rm -rf /tmp/ff /tmp/ff.tar.xz \
  # WARP tooling: wgcf registers a free WARP device + WireGuard profile;
- # wireproxy runs it in userspace and exposes a local SOCKS5 proxy.
+ # wireproxy runs it in userspace and exposes a local HTTP proxy.
  && curl -fsSL "https://github.com/ViRb3/wgcf/releases/download/v2.2.32/wgcf_2.2.32_linux_amd64" -o /usr/local/bin/wgcf \
  && chmod a+rx /usr/local/bin/wgcf \
  && test -x /usr/local/bin/wgcf \

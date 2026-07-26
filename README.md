@@ -11,9 +11,16 @@ Files land in `./downloads`.
 
 ## What it does
 
-Paste a URL from YouTube, TikTok, Instagram, X/Twitter, SoundCloud, Bandcamp,
-Vimeo, Facebook, Reddit, Twitch, Mixcloud, or Spotify. murdock identifies the
-service, pulls the media, and transcodes it to the audio format you pick.
+Paste a URL, and murdock identifies the service, pulls the media, and transcodes
+it to the audio format you pick.
+
+**Supported:** YouTube, Spotify, SoundCloud, Bandcamp, Vimeo, Mixcloud, Reddit,
+Twitch, direct links. **Best-effort (may fail):** TikTok.
+
+**Not supported:** Instagram, X/Twitter, Facebook — these require a login that a
+hosted tool can't do reliably, so murdock refuses them up front with a clear
+message rather than a confusing failure. They may work from a local (residential
+IP) run, but aren't dependable and are dropped from the hosted UI.
 
 - **Formats** — WAV, FLAC (lossless, best for sampling), MP3, M4A, OPUS
 - **Clipping** — optional start/end timecodes (`0:45`, `1:02:03`, or raw seconds)
@@ -68,13 +75,30 @@ docker run -p 5757:5757 murdock
 For Render: push the repo, then **New → Blueprint** and pick it — `render.yaml`
 configures everything. See [docs/murdock-engineering-scope.md](docs/murdock-engineering-scope.md).
 
-**Expect YouTube to be unreliable when hosted.** YouTube blocks datacenter IP
-ranges, so grabs that work locally may fail on a cloud host with "Sign in to
-confirm you're not a bot." Other providers are far less aggressive.
+The container installs **yt-dlp nightly** (`--pre`) — extractor fixes land there
+first, and stable had Vimeo + Mixcloud broken. A rebuild pulls the latest nightly.
+
+**YouTube/Spotify on the hosted instance** work via a userspace Cloudflare WARP
+tunnel (YouTube blocks datacenter IPs directly). It's brought up best-effort at
+boot and only enabled once traffic is verified to egress through WARP; if it's
+unavailable, those grabs fail gracefully and the other sources keep working.
 
 A public instance is rate limited per IP (`MURDOCK_EXTRACT_PER_HOUR`, default
 12) with a global concurrency cap (`MURDOCK_MAX_CONCURRENT`, default 2), since
 512MB of RAM cannot survive many parallel transcodes.
+
+### Avoiding the cold start
+Render's free tier spins down after ~15 min idle, so the first request then takes
+~1 min. Two free ways to keep it warm:
+
+- **External monitor (recommended, reliable):** point [UptimeRobot](https://uptimerobot.com)
+  or [cron-job.org](https://cron-job.org) at `https://<your-app>.onrender.com/api/health`
+  every 10 minutes.
+- **GitHub Action (in-repo):** `.github/workflows/keep-warm.yml` pings the health
+  endpoint every ~10 min. Best-effort — GitHub's scheduler can lag and disables
+  after ~60 days of repo inactivity, so the external monitor is more dependable.
+
+One always-warm service fits within Render free tier's ~750 instance-hours/month.
 
 ## Docs
 
@@ -85,6 +109,10 @@ A public instance is rate limited per IP (`MURDOCK_EXTRACT_PER_HOUR`, default
 
 - Node 20+
 - `yt-dlp` and `ffmpeg` on PATH — `brew install yt-dlp ffmpeg`
+
+For the full supported set locally (Vimeo + Mixcloud are broken on current stable
+yt-dlp), run the **nightly** channel: `yt-dlp --update-to nightly`, or install via
+`pipx install --pip-args=--pre yt-dlp`. The container already uses nightly.
 
 yt-dlp breaks whenever a platform changes its internals, so update it when
 extractions start failing:

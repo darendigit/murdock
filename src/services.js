@@ -1,9 +1,19 @@
 /**
  * Service detection: map an arbitrary pasted URL onto a known provider.
  *
- * `direct` providers can be handed straight to yt-dlp.
- * `resolve` providers (Spotify) have DRM-protected streams and must be
- * resolved to a searchable title first — see src/spotify.js.
+ * `mode`: `direct` providers go straight to yt-dlp; `resolve` (Spotify) has
+ * DRM-protected streams and must be resolved to a searchable title first — see
+ * src/spotify.js.
+ *
+ * `tier` (set from the 0.0.4 feasibility gate against the hosted datacenter IP):
+ *   - `supported`  — reliably grabbable on the hosted instance.
+ *   - `bestEffort` — usually works but may fail (surfaced to the user).
+ *   - `unsupported`— hard login/auth-wall no hosted tool can clear; we refuse
+ *                    up front with a clear message instead of a raw yt-dlp error.
+ *
+ * `proxied`: route this provider's yt-dlp calls through the WARP egress proxy
+ * (server.js `proxyFor`). Needed for the platforms that block/limit datacenter
+ * IPs; the others go direct (WARP only adds latency for them).
  */
 
 const PROVIDERS = [
@@ -11,73 +21,97 @@ const PROVIDERS = [
     id: 'youtube',
     label: 'YouTube',
     mode: 'direct',
+    tier: 'supported',
+    proxied: true,
     hosts: ['youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be', 'music.youtube.com'],
   },
   {
     id: 'spotify',
     label: 'Spotify',
     mode: 'resolve',
+    tier: 'supported',
+    proxied: true, // resolves to a YouTube search
     hosts: ['open.spotify.com', 'play.spotify.com', 'spotify.link'],
-  },
-  {
-    id: 'tiktok',
-    label: 'TikTok',
-    mode: 'direct',
-    hosts: ['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com', 'm.tiktok.com'],
-  },
-  {
-    id: 'instagram',
-    label: 'Instagram',
-    mode: 'direct',
-    hosts: ['instagram.com', 'www.instagram.com', 'instagr.am', 'ddinstagram.com'],
-  },
-  {
-    id: 'twitter',
-    label: 'X / Twitter',
-    mode: 'direct',
-    hosts: ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com', 'mobile.twitter.com', 't.co'],
   },
   {
     id: 'soundcloud',
     label: 'SoundCloud',
     mode: 'direct',
+    tier: 'supported',
+    proxied: false,
     hosts: ['soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com', 'on.soundcloud.com'],
   },
   {
     id: 'bandcamp',
     label: 'Bandcamp',
     mode: 'direct',
+    tier: 'supported',
+    proxied: false,
     hostSuffixes: ['bandcamp.com'],
   },
   {
     id: 'vimeo',
     label: 'Vimeo',
     mode: 'direct',
+    tier: 'supported', // works on yt-dlp nightly (broken on stable)
+    proxied: false,
     hosts: ['vimeo.com', 'www.vimeo.com', 'player.vimeo.com'],
   },
   {
-    id: 'facebook',
-    label: 'Facebook',
+    id: 'mixcloud',
+    label: 'Mixcloud',
     mode: 'direct',
-    hosts: ['facebook.com', 'www.facebook.com', 'fb.watch', 'm.facebook.com'],
+    tier: 'supported', // works on yt-dlp nightly (broken on stable)
+    proxied: false,
+    hosts: ['mixcloud.com', 'www.mixcloud.com'],
   },
   {
     id: 'reddit',
     label: 'Reddit',
     mode: 'direct',
+    tier: 'supported',
+    proxied: true, // datacenter IPs get rate-limited
     hosts: ['reddit.com', 'www.reddit.com', 'v.redd.it', 'old.reddit.com'],
   },
   {
     id: 'twitch',
     label: 'Twitch',
     mode: 'direct',
+    tier: 'supported',
+    proxied: false,
     hosts: ['twitch.tv', 'www.twitch.tv', 'clips.twitch.tv', 'm.twitch.tv'],
   },
   {
-    id: 'mixcloud',
-    label: 'Mixcloud',
+    id: 'tiktok',
+    label: 'TikTok',
     mode: 'direct',
-    hosts: ['mixcloud.com', 'www.mixcloud.com'],
+    tier: 'bestEffort', // rate-limits/region-locks; WARP helps but not guaranteed
+    proxied: true,
+    hosts: ['tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com', 'm.tiktok.com'],
+  },
+  {
+    id: 'instagram',
+    label: 'Instagram',
+    mode: 'direct',
+    tier: 'unsupported', // login/rate-limit wall no hosted tool clears reliably
+    proxied: false,
+    hosts: ['instagram.com', 'www.instagram.com', 'instagr.am', 'ddinstagram.com'],
+  },
+  {
+    id: 'twitter',
+    label: 'X / Twitter',
+    mode: 'direct',
+    tier: 'unsupported', // media locked behind login
+    proxied: false,
+    hosts: ['twitter.com', 'www.twitter.com', 'x.com', 'www.x.com', 'mobile.twitter.com', 't.co'],
+  },
+  {
+    id: 'facebook',
+    label: 'Facebook',
+    mode: 'direct',
+    tier: 'unsupported', // login/rate-limit wall
+    proxied: false,
+    hosts: ['facebook.com', 'www.facebook.com', 'fb.watch', 'm.facebook.com'],
   },
 ];
 
@@ -128,20 +162,31 @@ export function detectService(raw) {
         label: provider.label,
         mode: provider.mode,
         url: url.toString(),
-        supported: true,
+        tier: provider.tier,
+        proxied: Boolean(provider.proxied),
       };
     }
   }
 
+  // Unknown host: still worth attempting (yt-dlp covers ~1000 sites). Route it
+  // through WARP too, since an unknown datacenter-hostile site is more likely to
+  // need it than not.
   return {
     id: 'unknown',
     label: url.hostname,
     mode: 'direct',
     url: url.toString(),
-    supported: false,
+    tier: 'unknown',
+    proxied: true,
   };
 }
 
+/** Providers exposed to the UI, minus the dropped (unsupported) ones. */
 export function listProviders() {
-  return PROVIDERS.map(({ id, label, mode }) => ({ id, label, mode }));
+  return PROVIDERS.filter((p) => p.tier !== 'unsupported').map(({ id, label, mode, tier }) => ({
+    id,
+    label,
+    mode,
+    tier,
+  }));
 }

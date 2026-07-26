@@ -1,0 +1,22 @@
+name: keep-warm
+
+# Pings the hosted instance so Render's free tier never idles into a spin-down
+# (which causes the ~1-minute cold-start page). Best-effort: GitHub's scheduled
+# runners can lag by several minutes and disable after ~60 days of repo
+# inactivity, so for rock-solid uptime prefer an external monitor
+# (UptimeRobot / cron-job.org → /api/health every 10 min) — see README.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every 10 minutes (best-effort timing)
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /api/health
+        run: |
+          curl -fsS -m 30 https://murdock.onrender.com/api/health > /dev/null \
+            && echo "murdock pinged, awake" \
+            || echo "ping failed (instance may be mid-deploy)"

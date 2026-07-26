@@ -199,7 +199,12 @@ form.addEventListener('submit', async (event) => {
 
     if (!probeRes.ok) throw Object.assign(new Error(probeData.error || 'Could not read that link.'), { soft: probeData.soft });
 
-    showStatus(`Found: ${probeData.media.title}`);
+    const bestEffort = probeData.service?.tier === 'bestEffort';
+    showStatus(
+      bestEffort
+        ? `Found: ${probeData.media.title} · ${probeData.service.label} is best-effort — may fail`
+        : `Found: ${probeData.media.title}`
+    );
 
     const extractRes = await fetch('/api/extract', {
       method: 'POST',
@@ -221,8 +226,13 @@ form.addEventListener('submit', async (event) => {
 fetch('/api/health')
   .then((r) => r.json())
   .then((health) => {
-    const names = health.providers.map((p) => p.label).join(' · ');
-    providersEl.textContent = `${names} — plus ~1000 more sites via yt-dlp.`;
+    const names = health.providers
+      .map((p) => (p.tier === 'bestEffort' ? `${p.label}*` : p.label))
+      .join(' · ');
+    const hasBestEffort = health.providers.some((p) => p.tier === 'bestEffort');
+    providersEl.textContent =
+      `${names} — plus ~1000 more sites via yt-dlp.` +
+      (hasBestEffort ? '  * best-effort, may fail.' : '');
     if (!health.ok) {
       showStatus(`yt-dlp unavailable: ${health.ytdlp.error}`, { error: true });
     }

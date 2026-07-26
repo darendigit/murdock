@@ -57,40 +57,44 @@ function parseTimecode(value) {
  * request piled up hanging processes on the hosted instance and made the whole
  * service unresponsive. Check once at boot, then refresh on a slow interval.
  */
-// Optional egress proxy, applied ONLY to YouTube-bound yt-dlp calls. YouTube
-// blocks the hosted instance's datacenter IP; a WARP proxy (wired up in the
+// Optional egress proxy for the platforms that block/limit datacenter IPs
+// (marked `proxied` in src/services.js). A WARP proxy (wired up in the
 // Dockerfile) gives those requests a non-blocked egress. Unset locally, so
 // local grabs — from a residential IP — always go direct.
 const YT_PROXY = process.env.MURDOCK_YT_PROXY || null;
 
-/** Proxy to use for a service's yt-dlp calls, or null. YouTube-bound only. */
+/** Proxy to use for a service's yt-dlp calls, or null. Data-driven per provider. */
 function proxyFor(service) {
   if (!YT_PROXY) return null;
-  // Direct YouTube, or Spotify (which resolves to a YouTube search) — both
-  // ultimately hit YouTube. Everything else goes direct.
-  return service.id === 'youtube' || service.mode === 'resolve' ? YT_PROXY : null;
+  return service?.proxied ? YT_PROXY : null;
 }
 
 /**
- * Map a raw extractor error to a calm, actionable message. yt-dlp's YouTube
- * bot-check error ("Sign in to confirm you're not a bot… use --cookies") reads
- * as fatal and technical; on the hosted instance it just means YouTube wasn't
- * reachable this time. Returns { message, soft } — soft errors render as a
- * gentle notice rather than a red failure.
+ * Refusal message for a dropped (unsupported) provider — shown up front instead
+ * of letting the request hit yt-dlp and fail with a raw login/cookies error.
+ */
+function unsupportedMessage(service) {
+  return `${service.label} isn’t supported — it requires a login that a hosted tool can’t do reliably. Try SoundCloud, Bandcamp, YouTube, or a direct link.`;
+}
+
+/**
+ * Map a raw extractor error to a calm, actionable message. yt-dlp's block/
+ * bot-check errors read as fatal and technical; on the hosted instance they just
+ * mean the source wasn't reachable this time. Returns { message, soft } — soft
+ * errors render as a gentle notice rather than a red failure.
  */
 function friendlyError(message, service) {
   const m = String(message || '');
-  const ytBound = service && (service.id === 'youtube' || service.mode === 'resolve');
   const unreachable =
-    /not a bot|sign in to confirm|player response|unable to download|http error 403|proxy|timed out|connection refused|failed to extract/i.test(
+    /not a bot|sign in to confirm|player response|unable to download|http error 403|login|rate.?limit|proxy|timed out|connection refused|failed to extract/i.test(
       m
     );
 
-  if (ytBound && unreachable) {
+  // Proxied/best-effort sources are the ones that fail this way on a hosted box.
+  if (service?.proxied && unreachable) {
     return {
       soft: true,
-      message:
-        'Unable to pull audio from YouTube right now, try again in a few minutes or use a link from another service.',
+      message: `Unable to pull audio from ${service.label} right now, try again in a few minutes or use a link from another service.`,
     };
   }
   return { soft: false, message: m };
@@ -122,6 +126,12 @@ app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
   try {
     service = detectService(req.body?.url);
 
+    // Dropped platforms (Instagram/X/Facebook) — refuse up front with a calm
+    // notice instead of letting yt-dlp fail with a raw login/cookies error.
+    if (service.tier === 'unsupported') {
+      return res.status(400).json({ error: unsupportedMessage(service), soft: true });
+    }
+
     if (service.mode === 'resolve') {
       const resolved = await resolveSpotify(service.url);
       const info = await probe(toSearchTarget(resolved.searchQuery), { proxy: proxyFor(service) });
@@ -152,6 +162,11 @@ app.post('/api/extract', rateLimit('extract', EXTRACT_PER_HOUR), async (req, res
     }
 
     const service = detectService(url);
+
+    if (service.tier === 'unsupported') {
+      return res.status(400).json({ error: unsupportedMessage(service), soft: true });
+    }
+
     const start = parseTimecode(startTime);
     const end = parseTimecode(endTime);
 
