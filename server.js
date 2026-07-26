@@ -7,6 +7,7 @@ import { mkdir, stat, readFile } from 'node:fs/promises';
 import { detectService, listProviders } from './src/services.js';
 import { probe, extractAudio, checkAvailable, AUDIO_FORMATS } from './src/ytdlp.js';
 import { resolveSpotify, toSearchTarget } from './src/spotify.js';
+import { resolveAppleMusic } from './src/appleMusic.js';
 import {
   startSweeper,
   getStats,
@@ -67,6 +68,15 @@ const YT_PROXY = process.env.MURDOCK_YT_PROXY || null;
 function proxyFor(service) {
   if (!YT_PROXY) return null;
   return service?.proxied ? YT_PROXY : null;
+}
+
+/**
+ * Resolve a `mode: 'resolve'` service (DRM streaming) to a YouTube search term +
+ * display metadata. Both Spotify and Apple Music return the same shape.
+ */
+function resolveTrack(service) {
+  if (service.id === 'applemusic') return resolveAppleMusic(service.url);
+  return resolveSpotify(service.url);
 }
 
 /**
@@ -133,13 +143,13 @@ app.post('/api/probe', rateLimit('probe', PROBE_PER_HOUR), async (req, res) => {
     }
 
     if (service.mode === 'resolve') {
-      const resolved = await resolveSpotify(service.url);
+      const resolved = await resolveTrack(service);
       const info = await probe(toSearchTarget(resolved.searchQuery), { proxy: proxyFor(service) });
 
       return res.json({
         service,
         resolvedVia: 'youtube-match',
-        spotify: { title: resolved.title, artist: resolved.artist },
+        resolved: { title: resolved.title, artist: resolved.artist, source: service.label },
         media: { ...info, thumbnail: resolved.thumbnail || info.thumbnail },
       });
     }
@@ -226,8 +236,8 @@ async function runJobInner(job, service, { format, start, end, stereo }) {
   let target = service.url;
 
   if (service.mode === 'resolve') {
-    job.stage = 'Resolving Spotify track';
-    const resolved = await resolveSpotify(service.url);
+    job.stage = `Resolving ${service.label} track`;
+    const resolved = await resolveTrack(service);
     job.stage = `Matching "${resolved.searchQuery}" on YouTube`;
     target = toSearchTarget(resolved.searchQuery);
     job.matchedQuery = resolved.searchQuery;

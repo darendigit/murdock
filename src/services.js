@@ -34,6 +34,14 @@ const PROVIDERS = [
     hosts: ['open.spotify.com', 'play.spotify.com', 'spotify.link'],
   },
   {
+    id: 'applemusic',
+    label: 'Apple Music',
+    mode: 'resolve',
+    tier: 'supported',
+    proxied: true, // DRM-protected like Spotify; resolves to a YouTube search
+    hosts: ['music.apple.com', 'embed.music.apple.com'],
+  },
+  {
     id: 'soundcloud',
     label: 'SoundCloud',
     mode: 'direct',

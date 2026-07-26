@@ -93,7 +93,7 @@ function startExpiryCountdown(el) {
 }
 
 function renderResult(probeData, job) {
-  const { service, media, spotify, resolvedVia } = probeData;
+  const { service, media, resolved, resolvedVia } = probeData;
   const duration = formatDuration(media.durationSeconds);
 
   const subParts = [media.uploader, duration].filter(Boolean);
@@ -106,13 +106,13 @@ function renderResult(probeData, job) {
         : ''}
       <div class="meta-text">
         <div class="badge">${escapeHtml(service.label)}</div>
-        <h2>${escapeHtml(spotify?.title || media.title)}</h2>
+        <h2>${escapeHtml(resolved?.title || media.title)}</h2>
         <p class="sub">${escapeHtml(subParts.join('  ·  '))}</p>
         ${resolvedVia === 'youtube-match' ? `
           <p class="note">
-            Spotify audio is DRM-protected, so murdock matched this track on
-            YouTube instead: “${escapeHtml(media.title)}”. Check it's the right
-            take before you sample it.
+            ${escapeHtml(resolved?.source || 'That service')} audio is DRM-protected,
+            so murdock matched this track on YouTube instead:
+            “${escapeHtml(media.title)}”. Check it's the right take before you sample it.
           </p>` : ''}
       </div>
     </div>

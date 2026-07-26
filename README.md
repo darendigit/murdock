@@ -14,8 +14,8 @@ Files land in `./downloads`.
 Paste a URL, and murdock identifies the service, pulls the media, and transcodes
 it to the audio format you pick.
 
-**Supported:** YouTube, Spotify, SoundCloud, Bandcamp, Vimeo, Mixcloud, Reddit,
-Twitch, direct links. **Best-effort (may fail):** TikTok.
+**Supported:** YouTube, Spotify, Apple Music, SoundCloud, Bandcamp, Vimeo,
+Mixcloud, Reddit, Twitch, direct links. **Best-effort (may fail):** TikTok.
 
 **Not supported:** Instagram, X/Twitter, Facebook — these require a login that a
 hosted tool can't do reliably, so murdock refuses them up front with a clear
@@ -36,12 +36,13 @@ source sit side by side instead of overwriting each other.
 Beyond the named services, yt-dlp supports well over a thousand sites, so
 unknown hosts are attempted rather than rejected.
 
-## Spotify
+## Spotify & Apple Music
 
-Spotify streams are DRM-protected (Widevine) and cannot be downloaded — not by
-murdock, not by yt-dlp, not by anything. What murdock does instead is read the
-track's public metadata (title + artist) and match it against YouTube, then pull
-that. This is the same approach `spotdl` takes.
+Spotify (Widevine) and Apple Music (FairPlay) streams are DRM-protected and
+cannot be downloaded — not by murdock, not by yt-dlp, not by anything. What
+murdock does instead is read the track's public metadata (title + artist) and
+match it against YouTube, then pull that. This is the same approach `spotdl`
+takes. Both resolvers scrape only public page metadata; no account or API key.
 
 **The match is a best guess.** Check the resolved title in the result card
 before you sample it — you may get a live version, a remaster, or a cover
