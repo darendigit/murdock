@@ -4,6 +4,25 @@ All notable changes to murdock are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.0] — 2026-07-26
+
+The sampling-prep release — detect a sample's key and shift it into another.
+
+### Added
+- **Key detection** — estimates the musical key (with Camelot code) client-side
+  (chroma + Krumhansl-Schmuckler) off the audio the player already decodes. Zero
+  dependencies, no server cost. It's a best guess — the ±semitone control is the
+  reliable fallback.
+- **Key shifting** — pitch-shift a grab to a target key or by ±semitones, tempo
+  preserved. New `POST /api/shift` runs rubberband (ffmpeg `rubberband` filter →
+  `rubberband` CLI → `asetrate`/`atempo` fallback, detected at boot); the result
+  swaps the player + download in place. Gated by the existing rate limit +
+  concurrency slot. Verified live, incl. duration preserved exactly.
+- UI: detected-key line, a "shift to key" picker and ±semitone steppers with a
+  live resulting-key preview.
+- Container installs `rubberband-cli`; `brew install rubberband` documented for
+  best local quality.
+
 ## [0.0.5] — 2026-07-26
 
 ### Added
@@ -147,6 +166,7 @@ Initial build: paste a link, get an audio file.
   auto-deletion opt-in; `downloads/` is a library locally, a scratch buffer only
   when hosted.
 
+[0.1.0]: https://github.com/darendigit/murdock/releases/tag/v0.1.0
 [0.0.5]: https://github.com/darendigit/murdock/releases/tag/v0.0.5
 [0.0.4]: https://github.com/darendigit/murdock/releases/tag/v0.0.4
 [0.0.3]: https://github.com/darendigit/murdock/releases/tag/v0.0.3
