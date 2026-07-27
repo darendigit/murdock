@@ -1,4 +1,5 @@
 import { createPlayer } from '/player.js';
+import { NOTE_NAMES, shiftedKey } from '/key.js';
 
 const form = document.getElementById('grab-form');
 const urlInput = document.getElementById('url');
@@ -117,6 +118,20 @@ function renderResult(probeData, job) {
       </div>
     </div>
     <div class="player-slot"></div>
+    <div class="keybar">
+      <span class="key-detected" id="key-detected">detecting key…</span>
+      <div class="shift-controls">
+        <select id="shift-target" title="Shift to key" disabled>
+          <option value="">shift to key…</option>
+        </select>
+        <span class="shift-steppers">
+          <button type="button" class="stepper" data-step="-1" aria-label="down a semitone">−</button>
+          <span class="shift-amount" id="shift-amount">0</span>
+          <button type="button" class="stepper" data-step="1" aria-label="up a semitone">+</button>
+        </span>
+        <button type="button" class="shift-btn" id="shift-btn" disabled>Shift key</button>
+      </div>
+    </div>
     <div class="download-bar">
       <span class="file-info">
         ${escapeHtml(job.filename)} · ${formatBytes(job.sizeBytes)}
@@ -127,12 +142,127 @@ function renderResult(probeData, job) {
   `;
 
   startExpiryCountdown(resultEl.querySelector('.expiry'));
+  wireKeyAndShift(job);
+}
+
+/**
+ * Wire the detected-key display and the shift controls. Shifts always operate on
+ * the original grabbed file (`sourceFilename`), so re-shifting starts from the
+ * source, not a previous shift.
+ */
+function wireKeyAndShift(job) {
+  const sourceFilename = job.filename;
+  let detectedKey = null;
+  let semitones = 0;
+
+  const keyEl = resultEl.querySelector('#key-detected');
+  const targetSel = resultEl.querySelector('#shift-target');
+  const amountEl = resultEl.querySelector('#shift-amount');
+  const shiftBtn = resultEl.querySelector('#shift-btn');
+
+  for (const name of NOTE_NAMES) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `→ ${name}`;
+    targetSel.appendChild(opt);
+  }
+
+  const fmtAmount = (n) => (n > 0 ? `+${n}` : `${n}`);
+  const setSemitones = (n) => {
+    semitones = Math.max(-12, Math.min(12, n));
+    amountEl.textContent = fmtAmount(semitones);
+    shiftBtn.disabled = semitones === 0;
+    // Preview the resulting key next to the amount.
+    if (detectedKey && semitones !== 0) {
+      const to = shiftedKey(detectedKey, semitones);
+      if (to) keyEl.dataset.preview = `→ ${to.label} · ${to.camelot}`;
+    } else {
+      delete keyEl.dataset.preview;
+    }
+    renderKeyLine();
+  };
+
+  const renderKeyLine = () => {
+    if (!detectedKey) {
+      keyEl.textContent = 'key not detected';
+      return;
+    }
+    const preview = keyEl.dataset.preview ? `  ${keyEl.dataset.preview}` : '';
+    keyEl.textContent = `Key: ${detectedKey.label} · ${detectedKey.camelot}${preview}`;
+  };
+
+  targetSel.addEventListener('change', () => {
+    if (!detectedKey || !targetSel.value) return;
+    const from = NOTE_NAMES.indexOf(detectedKey.tonic);
+    const to = NOTE_NAMES.indexOf(targetSel.value);
+    let d = (to - from) % 12;
+    if (d > 6) d -= 12; // nearest direction, so shifts stay small
+    if (d < -6) d += 12;
+    setSemitones(d);
+  });
+
+  resultEl.querySelectorAll('.stepper').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      targetSel.value = '';
+      setSemitones(semitones + Number(btn.dataset.step));
+    });
+  });
+
+  shiftBtn.addEventListener('click', () => runShift(job, sourceFilename, semitones, () => detectedKey));
+
+  // Called by the player once it decodes and estimates the key.
+  const onKeyDetected = (key) => {
+    detectedKey = key;
+    targetSel.disabled = false;
+    renderKeyLine();
+  };
 
   destroyPlayer?.();
   destroyPlayer = createPlayer(resultEl.querySelector('.player-slot'), {
     streamUrl: job.streamUrl,
     format: job.filename.split('.').pop(),
+    onKeyDetected,
   });
+}
+
+/** POST /api/shift and swap the player + download to the shifted file. */
+async function runShift(job, sourceFilename, semitones, getKey) {
+  if (!semitones) return;
+  const shiftBtn = resultEl.querySelector('#shift-btn');
+  shiftBtn.disabled = true;
+  shiftBtn.textContent = 'Shifting…';
+  try {
+    const res = await fetch('/api/shift', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: sourceFilename, semitones }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Shift failed.');
+
+    // Swap the player + download to the shifted file.
+    destroyPlayer?.();
+    destroyPlayer = createPlayer(resultEl.querySelector('.player-slot'), {
+      streamUrl: data.streamUrl,
+      format: data.filename.split('.').pop(),
+    });
+    const dl = resultEl.querySelector('.download-btn');
+    dl.href = data.downloadUrl;
+    resultEl.querySelector('.file-info').innerHTML =
+      `${escapeHtml(data.filename)} · ${formatBytes(data.sizeBytes)} ` +
+      `<span class="expiry" data-expires="${data.expiresAt || ''}"></span>`;
+    startExpiryCountdown(resultEl.querySelector('.expiry'));
+
+    const to = shiftedKey(getKey(), semitones);
+    resultEl.querySelector('#key-detected').textContent = to
+      ? `Shifted ${semitones > 0 ? '+' : ''}${semitones} st → ${to.label} · ${to.camelot}`
+      : `Shifted ${semitones > 0 ? '+' : ''}${semitones} st`;
+    shiftBtn.textContent = 'Shifted ✓';
+  } catch (err) {
+    shiftBtn.textContent = 'Shift key';
+    shiftBtn.disabled = false;
+    showStatus(err.message, { error: true });
+  }
 }
 
 async function pollJob(jobId, probeData) {

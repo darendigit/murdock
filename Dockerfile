@@ -42,7 +42,7 @@ ENV NODE_ENV=production \
 ENV PATH="/opt/ytdlp-venv/bin:${PATH}"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv curl xz-utils \
+ && apt-get install -y --no-install-recommends ca-certificates python3 python3-venv curl xz-utils rubberband-cli \
  && python3 -m venv /opt/ytdlp-venv \
  && /opt/ytdlp-venv/bin/pip install --no-cache-dir --upgrade pip \
  # Install yt-dlp NIGHTLY (--pre): extractor fixes land here first. Stable

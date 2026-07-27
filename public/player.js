@@ -9,6 +9,8 @@
  * gets a native <audio controls> fallback rather than a dead UI.
  */
 
+import { detectKey } from '/key.js';
+
 const BAR_WIDTH = 2;
 const BAR_GAP = 1;
 
@@ -61,7 +63,7 @@ function computePeaks(audioBuffer, barCount) {
   return peaks;
 }
 
-export function createPlayer(container, { streamUrl, format }) {
+export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
   container.innerHTML = `
     <div class="player">
       <button class="play-btn" type="button" aria-label="Play">
@@ -276,6 +278,16 @@ export function createPlayer(container, { streamUrl, format }) {
       peaks = computePeaks(buffer, Math.max(1, Math.floor(rect.width / (BAR_WIDTH + BAR_GAP))));
       loading.remove();
       draw();
+
+      // Detect musical key off the same decoded buffer. Deferred so the
+      // waveform paints first — detection is a ~1s synchronous pass.
+      if (onKeyDetected) {
+        setTimeout(() => {
+          if (destroyed) return;
+          const key = detectKey(buffer);
+          if (key && !destroyed) onKeyDetected(key);
+        }, 0);
+      }
     } catch (err) {
       // Decoding is a nicety — if it fails but playback works, keep the
       // transport usable with the flat idle bed.

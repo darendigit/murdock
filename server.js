@@ -8,6 +8,7 @@ import { detectService, listProviders } from './src/services.js';
 import { probe, extractAudio, checkAvailable, AUDIO_FORMATS } from './src/ytdlp.js';
 import { resolveSpotify, toSearchTarget } from './src/spotify.js';
 import { resolveAppleMusic } from './src/appleMusic.js';
+import { shiftAudio, detectShifter } from './src/pitch.js';
 import {
   startSweeper,
   getStats,
@@ -310,6 +311,56 @@ app.get('/api/job/:id', (req, res) => {
   res.json(job);
 });
 
+/**
+ * Pitch-shift an already-grabbed file by N semitones (key change). Operates on
+ * the existing file — no re-download. Synchronous: a shift is a quick local
+ * ffmpeg/rubberband pass, gated by the same rate limit + concurrency slot as
+ * extraction so it can't overwhelm a small box.
+ */
+app.post('/api/shift', rateLimit('shift', EXTRACT_PER_HOUR), async (req, res) => {
+  try {
+    const { filename, semitones } = req.body || {};
+    const src = resolveDownloadPath(String(filename || ''));
+    if (!src) return res.status(400).json({ error: 'Invalid file.' });
+    try {
+      await stat(src);
+    } catch {
+      return res.status(404).json({ error: 'That file is no longer available — grab it again.' });
+    }
+
+    const n = Number(semitones);
+    if (!Number.isFinite(n) || n === 0) {
+      return res.status(400).json({ error: 'Choose a non-zero shift.' });
+    }
+    if (Math.abs(n) > 12) {
+      return res.status(400).json({ error: 'Shift must be within ±12 semitones.' });
+    }
+
+    const ext = path.extname(src);
+    const base = path.basename(src, ext);
+    const outName = `${base}_${n > 0 ? '+' : ''}${n}st${ext}`;
+    const outPath = path.join(DOWNLOAD_DIR, outName);
+
+    const release = await acquireSlot();
+    try {
+      await shiftAudio(src, outPath, n, { stereo: true });
+    } finally {
+      release();
+    }
+
+    const { size } = await stat(outPath);
+    res.json({
+      filename: outName,
+      sizeBytes: size,
+      downloadUrl: `/api/file/${encodeURIComponent(outName)}`,
+      streamUrl: `/api/stream/${encodeURIComponent(outName)}`,
+      ...(EPHEMERAL ? { expiresAt: Date.now() + TTL_MINUTES * 60_000, ttlMinutes: TTL_MINUTES } : {}),
+    });
+  } catch (err) {
+    res.status(400).json({ error: `Key shift failed: ${err.message}` });
+  }
+});
+
 /** Serve a produced file as a download (Content-Disposition: attachment). */
 app.get('/api/file/:name', async (req, res) => {
   const filePath = resolveDownloadPath(req.params.name);
@@ -359,8 +410,10 @@ const server = app.listen(PORT, () => {
   // Probe yt-dlp after the server is already listening, so a slow first probe
   // never delays the port opening or the platform's health check passing.
   refreshYtdlpStatus().then((s) => {
-    console.log(s.ok ? `  yt-dlp ${s.version} ready\n` : `  ⚠ yt-dlp unavailable: ${s.error}\n`);
+    console.log(s.ok ? `  yt-dlp ${s.version} ready` : `  ⚠ yt-dlp unavailable: ${s.error}`);
   });
+  // Detect + cache the pitch-shift tier (rubberband filter > CLI > fallback).
+  detectShifter().then((tier) => console.log(`  pitch-shift: ${tier}\n`));
 });
 
 // Keep the cached status fresh without ever blocking a request.

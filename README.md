@@ -27,6 +27,10 @@ IP) run, but aren't dependable and are dropped from the hosted UI.
   so you can pull just the phrase you want instead of the whole track
 - **Preview player** — waveform with click/drag seeking, so you can hear the
   grab before committing it to disk. Arrow keys scrub ±5s, space toggles play.
+- **Key detection & shift** — estimates the sample's musical key (with Camelot
+  code) in the browser, and lets you pitch-shift it to a target key or by ±semitones
+  (tempo preserved) via rubberband. Detection is a best guess; the ±semitone
+  control is the reliable fallback.
 - **Stereo downmix** — on by default; a lot of sources carry 5.1 audio, which
   loads awkwardly into a DAW. Turn it off to keep the original channel layout.
 
@@ -114,6 +118,10 @@ One always-warm service fits within Render free tier's ~750 instance-hours/month
 For the full supported set locally (Vimeo + Mixcloud are broken on current stable
 yt-dlp), run the **nightly** channel: `yt-dlp --update-to nightly`, or install via
 `pipx install --pip-args=--pre yt-dlp`. The container already uses nightly.
+
+For best-quality key shifting locally, install rubberband: `brew install rubberband`.
+Without it, murdock falls back to a lower-fi ffmpeg pitch shift (`asetrate`/`atempo`).
+The container installs `rubberband-cli` already.
 
 yt-dlp breaks whenever a platform changes its internals, so update it when
 extractions start failing:
