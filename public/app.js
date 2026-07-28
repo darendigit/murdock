@@ -225,20 +225,52 @@ function wireKeyAndShift(job) {
   });
 }
 
-/** POST /api/shift and swap the player + download to the shifted file. */
+/**
+ * Kick off an async shift, poll it to completion, and swap the player + download
+ * to the shifted file. A full-track shift is CPU-heavy (can take a minute+ on
+ * the free tier), so the button shows a live elapsed counter rather than a
+ * frozen "Shifting…".
+ */
 async function runShift(job, sourceFilename, semitones, getKey) {
   if (!semitones) return;
   const shiftBtn = resultEl.querySelector('#shift-btn');
   shiftBtn.disabled = true;
-  shiftBtn.textContent = 'Shifting…';
+
+  const started = Date.now();
+  shiftBtn.textContent = 'Shifting… 0s';
+  const ticker = setInterval(() => {
+    shiftBtn.textContent = `Shifting… ${Math.round((Date.now() - started) / 1000)}s`;
+  }, 1000);
+
   try {
     const res = await fetch('/api/shift', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filename: sourceFilename, semitones }),
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Shift failed.');
+    const kickoff = await res.json();
+    if (!res.ok) throw new Error(kickoff.error || 'Shift failed.');
+
+    const data = await new Promise((resolve, reject) => {
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch(`/api/job/${kickoff.jobId}`);
+          const j = await r.json();
+          if (j.status === 'done') {
+            clearInterval(poll);
+            resolve(j);
+          } else if (j.status === 'error') {
+            clearInterval(poll);
+            reject(new Error(j.error || 'Shift failed.'));
+          }
+        } catch {
+          clearInterval(poll);
+          reject(new Error('Lost connection during shift.'));
+        }
+      }, 800);
+    });
+
+    clearInterval(ticker);
 
     // Swap the player + download to the shifted file.
     destroyPlayer?.();
@@ -259,6 +291,7 @@ async function runShift(job, sourceFilename, semitones, getKey) {
       : `Shifted ${semitones > 0 ? '+' : ''}${semitones} st`;
     shiftBtn.textContent = 'Shifted ✓';
   } catch (err) {
+    clearInterval(ticker);
     shiftBtn.textContent = 'Shift key';
     shiftBtn.disabled = false;
     showStatus(err.message, { error: true });

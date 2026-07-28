@@ -127,6 +127,7 @@ app.get('/api/health', async (req, res) => {
     providers: listProviders(),
     storage: await getStats(DOWNLOAD_DIR),
     jobs: activeJobs(),
+    shifter: await detectShifter(),
     limits: { extractPerHour: EXTRACT_PER_HOUR, probePerHour: PROBE_PER_HOUR },
   });
 });
@@ -313,9 +314,10 @@ app.get('/api/job/:id', (req, res) => {
 
 /**
  * Pitch-shift an already-grabbed file by N semitones (key change). Operates on
- * the existing file — no re-download. Synchronous: a shift is a quick local
- * ffmpeg/rubberband pass, gated by the same rate limit + concurrency slot as
- * extraction so it can't overwhelm a small box.
+ * the existing file — no re-download. Asynchronous (returns a jobId to poll)
+ * because a high-quality shift of a full track can take a minute or more on a
+ * small box — well past an HTTP timeout. Gated by the same rate limit +
+ * concurrency slot as extraction.
  */
 app.post('/api/shift', rateLimit('shift', EXTRACT_PER_HOUR), async (req, res) => {
   try {
@@ -341,23 +343,49 @@ app.post('/api/shift', rateLimit('shift', EXTRACT_PER_HOUR), async (req, res) =>
     const outName = `${base}_${n > 0 ? '+' : ''}${n}st${ext}`;
     const outPath = path.join(DOWNLOAD_DIR, outName);
 
-    const release = await acquireSlot();
-    try {
-      await shiftAudio(src, outPath, n, { stereo: true });
-    } finally {
-      release();
-    }
-
-    const { size } = await stat(outPath);
-    res.json({
-      filename: outName,
-      sizeBytes: size,
-      downloadUrl: `/api/file/${encodeURIComponent(outName)}`,
-      streamUrl: `/api/stream/${encodeURIComponent(outName)}`,
-      ...(EPHEMERAL ? { expiresAt: Date.now() + TTL_MINUTES * 60_000, ttlMinutes: TTL_MINUTES } : {}),
+    const jobId = randomUUID();
+    jobs.set(jobId, {
+      id: jobId,
+      kind: 'shift',
+      status: 'running',
+      stage: `Shifting key ${n > 0 ? '+' : ''}${n} st`,
+      progress: 0,
+      createdAt: Date.now(),
     });
+    res.json({ jobId });
+
+    // Run detached from the request lifecycle.
+    (async () => {
+      const release = await acquireSlot();
+      try {
+        await shiftAudio(src, outPath, n, { stereo: true });
+        const { size } = await stat(outPath);
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = 'done';
+          job.stage = 'Ready';
+          job.progress = 100;
+          job.filename = outName;
+          job.sizeBytes = size;
+          job.downloadUrl = `/api/file/${encodeURIComponent(outName)}`;
+          job.streamUrl = `/api/stream/${encodeURIComponent(outName)}`;
+          if (EPHEMERAL) {
+            job.expiresAt = Date.now() + TTL_MINUTES * 60_000;
+            job.ttlMinutes = TTL_MINUTES;
+          }
+        }
+      } catch (err) {
+        const job = jobs.get(jobId);
+        if (job) {
+          job.status = 'error';
+          job.error = `Key shift failed: ${err.message}`;
+        }
+      } finally {
+        release();
+      }
+    })();
   } catch (err) {
-    res.status(400).json({ error: `Key shift failed: ${err.message}` });
+    res.status(400).json({ error: err.message });
   }
 });
 

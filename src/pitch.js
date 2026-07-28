@@ -122,9 +122,17 @@ export async function shiftAudio(inputPath, outputPath, semitones, options = {})
   const tier = await detectShifter();
 
   if (tier === 'ffmpeg-rubberband') {
+    // pitchq=quality (not the default `speed`) + smoothing=on is what makes the
+    // shift sound clean/smooth rather than warbly. It's slower — which is why
+    // the shift runs as an async job (see server.js).
     await run(
       FFMPEG,
-      ['-y', '-i', inputPath, '-af', `rubberband=pitch=${ratio}`, ...ac, outputPath],
+      [
+        '-y', '-i', inputPath,
+        '-af', `rubberband=pitch=${ratio}:pitchq=quality:smoothing=on`,
+        ...ac,
+        outputPath,
+      ],
       { timeoutMs }
     );
     return outputPath;
