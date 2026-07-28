@@ -4,6 +4,24 @@ All notable changes to murdock are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/); this project
 uses [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-07-27
+
+Fixes for the key shift, from real feedback (sounded warbly and took too long).
+
+### Fixed
+- **Shift quality** — the ffmpeg rubberband filter was running at its default
+  `pitchq=speed` (warbly, "not smooth"). Now `pitchq=quality` + `smoothing=on`
+  for a clean shift.
+- **Shift speed / timeout** — a full-track shift measured ~106s even at the fast
+  setting (and quality is slower), past the HTTP request timeout. `POST /api/shift`
+  is now **asynchronous** (returns a jobId to poll); the UI shows a live elapsed
+  counter instead of a frozen button. Tip: clip first, then shift — a short clip
+  shifts in a few seconds; a full track on the free tier takes a couple of minutes.
+
+### Added
+- Shifter method (`ffmpeg-rubberband` / `rubberband-cli` / `ffmpeg-fallback`)
+  reported in `/api/health`.
+
 ## [0.1.0] — 2026-07-26
 
 The sampling-prep release — detect a sample's key and shift it into another.
@@ -166,6 +184,7 @@ Initial build: paste a link, get an audio file.
   auto-deletion opt-in; `downloads/` is a library locally, a scratch buffer only
   when hosted.
 
+[0.1.1]: https://github.com/darendigit/murdock/releases/tag/v0.1.1
 [0.1.0]: https://github.com/darendigit/murdock/releases/tag/v0.1.0
 [0.0.5]: https://github.com/darendigit/murdock/releases/tag/v0.0.5
 [0.0.4]: https://github.com/darendigit/murdock/releases/tag/v0.0.4
