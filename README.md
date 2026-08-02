@@ -4,10 +4,57 @@ Paste a link, get an audio file. A local tool for sourcing vocal stems and
 samples from online media.
 
 ```
-npm start        # → http://localhost:5757
+npm start        # → http://localhost:5757   (plain mode, same as the hosted build)
+npm run power    # → http://localhost:5757   (local power mode — everything below)
 ```
 
-Files land in `./downloads`.
+Files land in `./downloads` (plain) or `~/Downloads/murdock` (power mode).
+
+## Local power mode
+
+`npm run power` runs the exact same server with a set of env flags flipped on
+(`MURDOCK_LOCAL=1`, cookies, download dir). None of this touches the hosted
+deploy — the flags are unset there, so `main` behaves identically on Render.
+Everything power mode adds is gated behind those flags.
+
+What it unlocks on your own machine:
+
+- **Logged-in grabs** — reads your Opera cookies (`--cookies-from-browser`), which
+  clears YouTube's "confirm you're not a bot" wall, age-restricted content, and
+  login-walled sites. Change the browser with `MURDOCK_COOKIES_BROWSER`.
+- **Search by name** — type a song title instead of a link and pick from results.
+- **Visual clipping** — grab the whole track, then drag on the waveform to select
+  a clip (sample-accurate, no re-download). Loop the selection to audition it.
+- **BPM detection + tempo change** — detected in the browser; retime to any BPM
+  (pitch preserved) alongside the existing key shift.
+- **Camelot wheel** — visual harmonic-mixing wheel; click a compatible key to
+  shift into it.
+- **Stem separation** — split any grab into vocals / drums / bass / other with
+  Demucs (GPU-accelerated on Apple Silicon). One-time setup: `npm run setup-stems`.
+- **Loudness normalize** — EBU R128, so every sample sits at a consistent level.
+- **Auto-tagged metadata** — detected key + BPM are written into each file's tags
+  (not the name), so your library and DJ software can read them.
+- **Playlist / album → ZIP** — paste a YouTube or Spotify playlist/album link and
+  grab every track into a single ZIP.
+- **Library** — the `library` button lists everything you've grabbed (kept
+  forever), with key/BPM, re-open in the player, and reveal-in-Finder.
+- **Uncapped** — per-IP rate limits and the concurrency cap are lifted (single
+  trusted user, more RAM/CPU than the 512MB hosted box).
+
+Transforms compound: grab → clip → shift → tempo → normalize → split, each step
+operating on the result of the last.
+
+### Stem separation setup
+
+Demucs needs PyTorch, which has no wheels for the system Python 3.14 yet, so
+setup builds a dedicated Python 3.12 venv:
+
+```
+npm run setup-stems      # installs uv + a .venv-demucs with demucs (~2GB, once)
+```
+
+It writes `MURDOCK_DEMUCS_VENV` into `.env.local` (gitignored); `npm run power`
+picks it up. On Apple Silicon separations run on the GPU via PyTorch MPS.
 
 ## What it does
 
@@ -135,9 +182,14 @@ brew upgrade yt-dlp
 ```
 server.js          Express API + job queue
 src/services.js    URL → provider detection
-src/ytdlp.js       yt-dlp wrapper (spawn, no shell)
-src/spotify.js     Spotify metadata → YouTube search query
+src/ytdlp.js       yt-dlp wrapper (spawn, no shell) — grab, search, playlist enum
+src/spotify.js     Spotify metadata → YouTube search query (+ playlist enum)
+src/pitch.js       key shift + tempo stretch (rubberband/ffmpeg)
+src/clip.js        sample-accurate trim   src/normalize.js  EBU R128 loudness
+src/tag.js         key/BPM → file metadata  src/stems.js  Demucs stem separation
+src/playlist.js    playlist/album → ZIP     src/ffmpeg.js  shared ffmpeg helpers
 public/player.js   Waveform preview player (Web Audio + canvas, no deps)
+public/bpm.js      client-side BPM   public/camelot.js  Camelot wheel (SVG)
 public/            UI
 ```
 
@@ -150,10 +202,15 @@ public/            UI
 | `GET /api/job/:id` | job status, progress, download URL when done |
 | `GET /api/file/:name` | serves a produced file as a download |
 | `GET /api/stream/:name` | serves a file inline with Range support, for the player |
-| `GET /api/health` | yt-dlp availability, supported formats/providers |
+| `GET /api/health` | yt-dlp availability, supported formats/providers, power-mode feature flags |
 
 Extraction is async: `POST /api/extract` returns a job id immediately and the
 client polls `/api/job/:id`.
+
+Power-mode adds `POST /api/search`, `/api/clip`, `/api/tempo`, `/api/normalize`,
+`/api/tag`, `/api/stems`, `/api/playlist(/enumerate)`, `/api/reveal`, and
+`GET /api/library` — all gated on `MURDOCK_LOCAL=1` (the frontend reads
+`health.features` to decide what UI to show).
 
 ## Note on use
 

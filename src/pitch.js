@@ -168,3 +168,72 @@ export async function shiftAudio(inputPath, outputPath, semitones, options = {})
   );
   return outputPath;
 }
+
+/**
+ * Time-stretch `inputPath` by `ratio` (2.0 = twice as fast) into `outputPath`,
+ * preserving pitch. This is the tempo/BPM change — the counterpart to a key
+ * shift. rubberband (tiers 1–2) is cleanest; ffmpeg's `atempo` is a solid
+ * pitch-preserving fallback and is chained so ratios outside 0.5–2.0 still work.
+ */
+export async function stretchAudio(inputPath, outputPath, ratio, options = {}) {
+  const { stereo = true, timeoutMs = 300_000 } = options;
+  const r = Number(ratio);
+  if (!Number.isFinite(r) || r <= 0 || r === 1) {
+    throw new Error('Provide a tempo ratio other than 1.');
+  }
+  if (r < 0.25 || r > 4) {
+    throw new Error('Tempo change must be within 0.25×–4×.');
+  }
+
+  const ac = stereo ? ['-ac', '2'] : [];
+  const tier = await detectShifter();
+
+  if (tier === 'ffmpeg-rubberband') {
+    await run(
+      FFMPEG,
+      ['-y', '-i', inputPath, '-af', `rubberband=tempo=${r}`, ...ac, outputPath],
+      { timeoutMs }
+    );
+    return outputPath;
+  }
+
+  if (tier === 'rubberband-cli') {
+    const tmpIn = path.join(os.tmpdir(), `murdock-${randomUUID()}-in.wav`);
+    const tmpOut = path.join(os.tmpdir(), `murdock-${randomUUID()}-out.wav`);
+    try {
+      await run(FFMPEG, ['-y', '-i', inputPath, ...ac, tmpIn], { timeoutMs });
+      await run(RUBBERBAND, ['--tempo', String(r), tmpIn, tmpOut], { timeoutMs });
+      await run(FFMPEG, ['-y', '-i', tmpOut, outputPath], { timeoutMs });
+    } finally {
+      unlink(tmpIn).catch(() => {});
+      unlink(tmpOut).catch(() => {});
+    }
+    return outputPath;
+  }
+
+  // Fallback: atempo preserves pitch but only spans 0.5–2.0 per instance, so
+  // chain enough stages (each within range) to reach the requested ratio.
+  const stages = atempoChain(r);
+  await run(
+    FFMPEG,
+    ['-y', '-i', inputPath, '-af', stages.map((s) => `atempo=${s}`).join(','), ...ac, outputPath],
+    { timeoutMs }
+  );
+  return outputPath;
+}
+
+/** Factor `ratio` into a list of atempo values each within ffmpeg's 0.5–2.0 range. */
+function atempoChain(ratio) {
+  const stages = [];
+  let remaining = ratio;
+  while (remaining > 2.0) {
+    stages.push(2.0);
+    remaining /= 2.0;
+  }
+  while (remaining < 0.5) {
+    stages.push(0.5);
+    remaining /= 0.5;
+  }
+  stages.push(Number(remaining.toFixed(6)));
+  return stages;
+}

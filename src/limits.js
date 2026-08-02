@@ -12,9 +12,17 @@
  *     the practical ceiling.
  */
 
-export const EXTRACT_PER_HOUR = Number(process.env.MURDOCK_EXTRACT_PER_HOUR || 12);
-export const PROBE_PER_HOUR = Number(process.env.MURDOCK_PROBE_PER_HOUR || 60);
-export const MAX_CONCURRENT = Number(process.env.MURDOCK_MAX_CONCURRENT || 2);
+/**
+ * Local "power mode". On the hosted box this is unset and every default below
+ * matches the original single-instance-on-a-small-box tuning. On a personal
+ * machine (MURDOCK_LOCAL=1) the per-IP caps are effectively removed and more
+ * jobs may run at once — there is only one trusted user and far more RAM/CPU.
+ */
+export const LOCAL = process.env.MURDOCK_LOCAL === '1';
+
+export const EXTRACT_PER_HOUR = Number(process.env.MURDOCK_EXTRACT_PER_HOUR || (LOCAL ? 100000 : 12));
+export const PROBE_PER_HOUR = Number(process.env.MURDOCK_PROBE_PER_HOUR || (LOCAL ? 100000 : 60));
+export const MAX_CONCURRENT = Number(process.env.MURDOCK_MAX_CONCURRENT || (LOCAL ? 4 : 2));
 
 const WINDOW_MS = 60 * 60 * 1000;
 

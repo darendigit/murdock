@@ -13,6 +13,20 @@ const YTDLP = process.env.MURDOCK_YTDLP || 'yt-dlp';
 
 export const AUDIO_FORMATS = ['mp3', 'wav', 'flac', 'm4a', 'opus'];
 
+/**
+ * Local power mode: read the user's logged-in browser cookies so grabs go out
+ * authenticated. This is what clears YouTube's "confirm you're not a bot" wall,
+ * age-restricted content, and login-walled platforms (Instagram/X/Facebook) —
+ * things a hosted, cookie-less instance can't do. Unset on the hosted box.
+ * Value is a yt-dlp browser name, e.g. "opera", "chrome", "safari", "firefox".
+ */
+export const COOKIES_BROWSER = process.env.MURDOCK_COOKIES_BROWSER || null;
+
+/** yt-dlp args to pull cookies from the configured browser, or []. */
+function cookieArgs() {
+  return COOKIES_BROWSER ? ['--cookies-from-browser', COOKIES_BROWSER] : [];
+}
+
 /** Run yt-dlp and buffer its output. Rejects with yt-dlp's own stderr on failure. */
 function run(args, { timeoutMs = 120_000, onOutput } = {}) {
   return new Promise((resolve, reject) => {
@@ -82,7 +96,7 @@ function cleanError(stderr) {
 
 /** Fetch metadata without downloading. */
 export async function probe(url, { timeoutMs = 60_000, proxy = null } = {}) {
-  const args = ['--dump-single-json', '--no-playlist', '--no-warnings'];
+  const args = ['--dump-single-json', '--no-playlist', '--no-warnings', ...cookieArgs()];
   if (proxy) args.push('--proxy', proxy);
   args.push('--', url);
 
@@ -115,6 +129,86 @@ export async function probe(url, { timeoutMs = 60_000, proxy = null } = {}) {
     webpageUrl: info.webpage_url || url,
     isLive: Boolean(info.is_live),
   };
+}
+
+/**
+ * Search YouTube for a free-text query and return the top N matches as light
+ * metadata (no download). Powers "type a song name" — you paste a title instead
+ * of a link and pick the right result. Uses `ytsearchN:` + a flat playlist dump
+ * so it stays fast (one yt-dlp call, no per-entry resolution).
+ */
+export async function searchYoutube(query, { limit = 5, timeoutMs = 30_000, proxy = null } = {}) {
+  const q = String(query || '').trim();
+  if (!q) throw new Error('Type something to search for.');
+
+  const args = [
+    `ytsearch${Math.max(1, Math.min(20, limit))}:${q}`,
+    '--dump-json',
+    '--flat-playlist',
+    '--no-warnings',
+    ...cookieArgs(),
+  ];
+  if (proxy) args.push('--proxy', proxy);
+
+  const { stdout } = await run(args, { timeoutMs });
+
+  const results = [];
+  for (const line of stdout.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) continue;
+    let info;
+    try {
+      info = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!info.id) continue;
+    const thumbs = Array.isArray(info.thumbnails) ? info.thumbnails : [];
+    results.push({
+      id: info.id,
+      title: info.title || 'Untitled',
+      uploader: info.uploader || info.channel || info.uploader_id || null,
+      durationSeconds: typeof info.duration === 'number' ? Math.round(info.duration) : null,
+      thumbnail: thumbs.length ? thumbs[thumbs.length - 1].url : null,
+      webpageUrl: info.url || (info.id ? `https://www.youtube.com/watch?v=${info.id}` : null),
+    });
+  }
+
+  if (results.length === 0) throw new Error(`No results for "${q}".`);
+  return results;
+}
+
+/**
+ * Enumerate a playlist without downloading — returns the list of entries as
+ * lightweight metadata. Used by the bulk playlist→ZIP flow. `--flat-playlist`
+ * keeps it to a single fast yt-dlp call.
+ */
+export async function enumeratePlaylist(url, { timeoutMs = 60_000, proxy = null } = {}) {
+  const args = ['--flat-playlist', '--dump-json', '--no-warnings', ...cookieArgs()];
+  if (proxy) args.push('--proxy', proxy);
+  args.push('--', url);
+
+  const { stdout } = await run(args, { timeoutMs });
+
+  let title = 'Playlist';
+  const entries = [];
+  for (const line of stdout.split('\n')) {
+    const t = line.trim();
+    if (!t.startsWith('{')) continue;
+    let info;
+    try {
+      info = JSON.parse(t);
+    } catch {
+      continue;
+    }
+    if (info.playlist_title || info.playlist) title = info.playlist_title || info.playlist;
+    if (!info.id) continue;
+    entries.push({
+      title: info.title || info.id,
+      target: info.url || `https://www.youtube.com/watch?v=${info.id}`,
+    });
+  }
+  return { title, entries };
 }
 
 /**
@@ -165,6 +259,10 @@ export async function extractAudio(url, outputDir, options = {}) {
     // --print implies --quiet, which would swallow progress output entirely.
     // --progress forces it back on so jobs can report a percentage.
     '--progress',
+    // Pull HLS/DASH fragments in parallel — a meaningful speed-up on multi-
+    // fragment sources, and harmless on single-file downloads.
+    '--concurrent-fragments', '4',
+    ...cookieArgs(),
     '--output', path.join(outputDir, `%(title).120B [%(id)s]${clipTag}.%(ext)s`),
   ];
 

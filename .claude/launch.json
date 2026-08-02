@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 5757
+    },
+    {
+      "name": "powermode",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "power:preview"],
+      "port": 5759
     }
   ]
 }

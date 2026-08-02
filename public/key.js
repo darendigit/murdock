@@ -173,6 +173,16 @@ export function pitchClass(noteName) {
   return NOTE_NAMES.indexOf(noteName);
 }
 
+/** Invert a Camelot code ("11A"/"5B") to { tonic, mode }, or null. */
+export function camelotToKey(code) {
+  const c = String(code || '').trim().toUpperCase();
+  const majorPc = CAMELOT_MAJOR.indexOf(c);
+  if (majorPc >= 0) return { tonic: NOTE_NAMES[majorPc], mode: 'major' };
+  const minorPc = CAMELOT_MINOR.indexOf(c);
+  if (minorPc >= 0) return { tonic: NOTE_NAMES[minorPc], mode: 'minor' };
+  return null;
+}
+
 /** The key you'd land in after shifting `detected` by `semitones` (mode unchanged). */
 export function shiftedKey(detected, semitones) {
   if (!detected) return null;

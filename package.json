@@ -6,7 +6,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "power": "MURDOCK_LOCAL=1 MURDOCK_COOKIES_BROWSER=opera MURDOCK_DOWNLOAD_DIR=$HOME/Downloads/murdock node --env-file-if-exists=.env.local server.js",
+    "power:dev": "MURDOCK_LOCAL=1 MURDOCK_COOKIES_BROWSER=opera MURDOCK_DOWNLOAD_DIR=$HOME/Downloads/murdock node --env-file-if-exists=.env.local --watch server.js",
+    "power:preview": "PORT=5759 MURDOCK_LOCAL=1 MURDOCK_COOKIES_BROWSER=opera MURDOCK_DOWNLOAD_DIR=$HOME/Downloads/murdock node --env-file-if-exists=.env.local server.js",
+    "setup-stems": "bash scripts/setup-stems.sh",
+    "test": "node test/smoke.mjs"
   },
   "dependencies": {
     "express": "^4.21.2"

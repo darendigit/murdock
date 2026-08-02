@@ -123,6 +123,18 @@ const PROVIDERS = [
   },
 ];
 
+/**
+ * Does this input look like a link, or a free-text search query? Anything with
+ * whitespace is a query ("adele hello"); a bare token is only a URL if it has a
+ * scheme or a dotted host ("youtube.com/…"). Lets the UI accept either in one box.
+ */
+export function looksLikeUrl(raw) {
+  const t = String(raw || '').trim();
+  if (!t || /\s/.test(t)) return false;
+  if (/^https?:\/\//i.test(t)) return true;
+  return /^[\w-]+(\.[\w-]+)+(\/|$|\?|#|:)/.test(t);
+}
+
 /** Parse and normalize a pasted string into a URL, or throw a friendly error. */
 export function parseUrl(raw) {
   const trimmed = String(raw || '').trim();

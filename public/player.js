@@ -10,9 +10,11 @@
  */
 
 import { detectKey } from '/key.js';
+import { detectBPM } from '/bpm.js';
 
 const BAR_WIDTH = 2;
 const BAR_GAP = 1;
+const DRAG_THRESHOLD = 4; // px of movement before a click becomes a region drag
 
 function cssVar(name, fallback) {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -63,7 +65,7 @@ function computePeaks(audioBuffer, barCount) {
   return peaks;
 }
 
-export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
+export function createPlayer(container, { streamUrl, format, selectable = false, onKeyDetected, onBpmDetected, onRegionChange } = {}) {
   container.innerHTML = `
     <div class="player">
       <button class="play-btn" type="button" aria-label="Play">
@@ -96,11 +98,28 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
   let scrubbing = false;
   let destroyed = false;
 
+  // Region selection (visual clipping) + loop.
+  let region = null; // { start, end } in seconds, or null
+  let loopEnabled = false;
+  let dragAnchorX = null; // where a potential region-drag began
+  let dragging = false; // true once movement passes the threshold
+
   const colors = {
     played: cssVar('--accent', '#d6f45a'),
     idle: cssVar('--line', '#2a2e35'),
     idleLit: '#454b55',
   };
+
+  const clampTime = (t) => Math.max(0, Math.min(Number.isFinite(audio.duration) ? audio.duration : t, t));
+  const xToTime = (clientX) => {
+    const rect = canvas.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    return Number.isFinite(audio.duration) ? ratio * audio.duration : 0;
+  };
+
+  function emitRegion() {
+    onRegionChange?.(region ? { start: region.start, end: region.end } : null);
+  }
 
   function draw() {
     const rect = canvas.getBoundingClientRect();
@@ -144,6 +163,19 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
       ctx.clip();
       ctx.fillStyle = colors.played;
       drawBars();
+      ctx.restore();
+    }
+
+    // Selected region overlay (visual clip): translucent band + in/out handles.
+    if (region && audio.duration) {
+      const x0 = (region.start / audio.duration) * rect.width;
+      const x1 = (region.end / audio.duration) * rect.width;
+      ctx.save();
+      ctx.fillStyle = 'rgba(214, 244, 90, 0.14)';
+      ctx.fillRect(x0, 0, Math.max(1, x1 - x0), rect.height);
+      ctx.fillStyle = colors.played;
+      ctx.fillRect(x0, 0, 1.5, rect.height);
+      ctx.fillRect(x1 - 1.5, 0, 1.5, rect.height);
       ctx.restore();
     }
   }
@@ -201,6 +233,13 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
     draw();
   });
 
+  // Loop the selected region when looping is on (audition a chop before saving).
+  audio.addEventListener('timeupdate', () => {
+    if (loopEnabled && region && audio.duration && audio.currentTime >= region.end) {
+      audio.currentTime = region.start;
+    }
+  });
+
   audio.addEventListener('error', () => showUnplayable());
 
   function seekFromEvent(event) {
@@ -213,19 +252,56 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
     }
   }
 
+  // On the hosted player (selectable=false) drag scrubs, exactly as before.
+  // In local power mode, click = seek and drag = select a region (visual clip).
   canvas.addEventListener('pointerdown', (event) => {
     scrubbing = true;
     canvas.setPointerCapture(event.pointerId);
-    seekFromEvent(event);
+    if (selectable) {
+      dragAnchorX = event.clientX;
+      dragging = false;
+    } else {
+      seekFromEvent(event);
+    }
   });
 
   canvas.addEventListener('pointermove', (event) => {
-    if (scrubbing) seekFromEvent(event);
+    if (!scrubbing) return;
+    if (!selectable) {
+      seekFromEvent(event);
+      return;
+    }
+    if (dragAnchorX == null) return;
+    if (!dragging && Math.abs(event.clientX - dragAnchorX) > DRAG_THRESHOLD) dragging = true;
+    if (dragging) {
+      const a = clampTime(xToTime(dragAnchorX));
+      const b = clampTime(xToTime(event.clientX));
+      region = { start: Math.min(a, b), end: Math.max(a, b) };
+      draw();
+    }
   });
 
   canvas.addEventListener('pointerup', (event) => {
     scrubbing = false;
     canvas.releasePointerCapture(event.pointerId);
+    if (!selectable) return;
+
+    if (dragging && region && region.end - region.start >= 0.05) {
+      // Finalized a region — snap playback to its start and report it.
+      audio.currentTime = clampTime(region.start);
+      emitRegion();
+    } else {
+      // A plain click: clear any region and seek there.
+      if (region) {
+        region = null;
+        emitRegion();
+      }
+      seekFromEvent(event);
+    }
+    dragAnchorX = null;
+    dragging = false;
+    draw();
+    updateTime();
   });
 
   canvas.addEventListener('keydown', (event) => {
@@ -288,6 +364,15 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
           if (key && !destroyed) onKeyDetected(key);
         }, 0);
       }
+
+      // BPM off the same buffer, deferred so it never blocks the first paint.
+      if (onBpmDetected) {
+        setTimeout(() => {
+          if (destroyed) return;
+          const bpm = detectBPM(buffer);
+          if (bpm && !destroyed) onBpmDetected(bpm);
+        }, 0);
+      }
     } catch (err) {
       // Decoding is a nicety — if it fails but playback works, keep the
       // transport usable with the flat idle bed.
@@ -301,11 +386,29 @@ export function createPlayer(container, { streamUrl, format, onKeyDetected }) {
 
   draw();
 
-  return function destroy() {
+  function destroy() {
     destroyed = true;
     cancelAnimationFrame(raf);
     window.removeEventListener('resize', onResize);
     audio.pause();
     audio.src = '';
+  }
+
+  return {
+    destroy,
+    play: () => audio.play().catch(() => {}),
+    pause: () => audio.pause(),
+    setLoop: (on) => {
+      loopEnabled = Boolean(on);
+    },
+    setRegion: (r) => {
+      region = r && Number.isFinite(r.start) && Number.isFinite(r.end) && r.end > r.start
+        ? { start: r.start, end: r.end }
+        : null;
+      draw();
+      emitRegion();
+    },
+    getRegion: () => (region ? { ...region } : null),
+    getDuration: () => (Number.isFinite(audio.duration) ? audio.duration : null),
   };
 }

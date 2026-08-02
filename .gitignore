@@ -6,3 +6,8 @@ library/
 .DS_Store
 *.log
 .env
+# Local power-mode: machine-specific env + the Demucs venv. Never committed;
+# the hosted deploy neither has nor needs any of this.
+.env.local
+.venv-demucs/
+cookies*.txt
